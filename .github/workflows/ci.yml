@@ -26,6 +26,7 @@ jobs:
   testes:
     name: Testes (núcleo, interface e app real)
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -35,9 +36,12 @@ jobs:
           node-version: 22
           cache: npm
       - name: Dependências do sistema (WebKitGTK, WebDriver, ecrã virtual)
+        # um espelho do apt lento já prendeu este passo 25 min: limite de tempo e novas tentativas
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libxdo-dev libssl-dev webkit2gtk-driver xvfb xclip
+          APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120"
+          sudo apt-get $APT update
+          sudo apt-get $APT install -y libwebkit2gtk-4.1-dev librsvg2-dev libxdo-dev libssl-dev webkit2gtk-driver xvfb xclip
       - name: Núcleo criptográfico (cargo test)
         run: cargo test -p lissecurity-core
       - name: Camada nativa (cargo test)
@@ -65,6 +69,7 @@ jobs:
   windows:
     name: Instalador Windows
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
