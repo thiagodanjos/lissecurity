@@ -147,11 +147,24 @@ async function escolherOpcao(rotulo, valor) {
 }
 /** Espera que nenhuma janela sobreposta (editor, confirmação) continue no DOM. */
 const semDialogos = () => d.wait(async () => (await d.findElements(By.css('[role="dialog"]'))).length === 0, 5000)
+/**
+ * Escreve num campo e confirma o que lá ficou. Em máquinas lentas (CI) o WebKit pode não limpar o
+ * campo ou perder teclas; nesse caso apaga com Ctrl+A + Backspace e volta a escrever.
+ */
 async function escrever(rotulo, valor) {
   const campo = await d.wait(until.elementLocated(By.xpath(`//label[normalize-space(text())="${rotulo}"]/following::input[1] | //input[@aria-label="${rotulo}"]`)), 10000)
   await d.executeScript('arguments[0].scrollIntoView({ block: "center" })', campo)
-  await campo.clear()
-  await campo.sendKeys(valor)
+  // campos como Validade, IBAN ou cartão formatam o que se escreve (1228 → 12/28); as senhas não
+  const senha = (await campo.getAttribute('type')) === 'password'
+  const normal = (v) => (senha ? v : v.replace(/[\s./-]/g, ''))
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    await campo.clear()
+    if ((await campo.getAttribute('value')) !== '') await campo.sendKeys(Key.chord(Key.CONTROL, 'a'), Key.BACK_SPACE)
+    await campo.sendKeys(valor)
+    await esperar(80 + tentativa * 200)
+    if (normal(await campo.getAttribute('value')) === normal(valor)) return
+  }
+  throw new Error(`o campo "${rotulo}" não ficou com o valor escrito`)
 }
 const html = () => d.executeScript('return document.documentElement.outerHTML')
 const textoPagina = () => d.executeScript('return document.body.innerText')
@@ -200,13 +213,22 @@ try {
     const aceitar = await d.findElements(By.xpath('//label[contains(., "quero usá-la")]//input'))
     if (aceitar.length) await aceitar[0].click()
     await clicar('Continuar')
-    await escrever('Repetir a senha mestra', SENHA)
-    await esperar(400) // máquinas lentas: deixar a animação do passo assentar antes de seguir
-    await clicar('Continuar')
-    if (!(await d.findElements(By.xpath('//*[contains(normalize-space(.), "Criar uma chave de recuperação")]'))).length) {
-      await esperar(1500)
-      const ainda = await d.findElements(By.xpath('//label[normalize-space(text())="Repetir a senha mestra"]'))
-      if (ainda.length) await clicar('Continuar') // o clique caiu durante a animação: tentar outra vez
+    // Confirmar a senha. No CI já aconteceu a primeira senha não ficar como foi escrita ("As duas
+    // senhas não são iguais"): nesse caso volta atrás, escreve as duas outra vez e segue.
+    for (let tentativa = 0; tentativa < 3; tentativa++) {
+      await escrever('Repetir a senha mestra', SENHA)
+      await esperar(400) // máquinas lentas: deixar a animação do passo assentar antes de seguir
+      await clicar('Continuar')
+      const avancou = await d
+        .wait(until.elementLocated(By.xpath('//*[contains(normalize-space(.), "Criar uma chave de recuperação")]')), 5000)
+        .then(() => true, () => false)
+      if (avancou) break
+      if ((await textoPagina()).includes('não são iguais')) {
+        await clicar('Voltar')
+        await escrever('Senha mestra', SENHA)
+        await esperar(400)
+        await clicar('Continuar')
+      }
     }
     await porTexto('Criar uma chave de recuperação', '*', 15000)
     await clicar('Continuar')
