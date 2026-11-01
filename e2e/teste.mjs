@@ -94,6 +94,22 @@ async function porTexto(texto, tag = '*', ms = 10000) {
     throw new Error(`"${texto}" não apareceu em ${ms / 1000} s. No ecrã: ${String(ecra).replace(/\s+/g, ' ').slice(0, 300)}`)
   }
 }
+/**
+ * Espera que um registo fique guardado. O aviso "Registo guardado no cofre" é passageiro e, numa
+ * máquina lenta, pode já ter desaparecido quando se procura: conta também ver o registo aberto.
+ */
+async function aguardarGuardado(titulo, ms = 20000) {
+  const visto = async () => {
+    const t = String(await d.executeScript('return document.body.innerText'))
+    return t.includes('Registo guardado no cofre') || (titulo ? t.includes(titulo) : false)
+  }
+  try {
+    await d.wait(visto, ms)
+  } catch {
+    const ecra = await d.executeScript('return document.body.innerText').catch(() => '')
+    throw new Error(`o registo "${titulo}" não ficou guardado em ${ms / 1000} s. No ecrã: ${String(ecra).replace(/\s+/g, ' ').slice(0, 300)}`)
+  }
+}
 const botao = (texto) => d.wait(until.elementLocated(By.xpath(`//button[contains(normalize-space(.), "${texto}") or @aria-label="${texto}"]`)), 10000)
 async function clicar(texto) {
   const b = await botao(texto)
@@ -268,7 +284,7 @@ try {
     await escrever('BIC / SWIFT', 'CGDIPTPL')
     await captura('09-editor-banco')
     await teclas('s')
-    await porTexto('Registo guardado no cofre')
+    await aguardarGuardado('Conta ordenado (exemplo)')
     await captura('10-detalhe-banco')
   })
 
@@ -283,7 +299,7 @@ try {
     await clicar('Adicionar chave Pix')
     await escrever('Chave Pix', '529.982.247-25')
     await teclas('s')
-    await porTexto('Registo guardado no cofre')
+    await aguardarGuardado('Conta corrente BR (exemplo)')
   })
 
   await passo('cartão com número validado e só 4 dígitos visíveis', async () => {
