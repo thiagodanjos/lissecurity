@@ -63,8 +63,10 @@ async function passo(nome, f) {
     registar(nome, false, (e?.message || e?.name || String(e)).split('\n')[0])
     try {
       const png = await d.takeScreenshot()
-      writeFileSync(path.join(TMP, `falha-${++falhaN}.png`), png, 'base64')
-      console.log(`   captura da falha: ${path.join(TMP, `falha-${falhaN}.png`)}`)
+      // no CI as capturas das falhas vão com as outras (artefacto da execução)
+      const pasta = process.env.CAPTURAS ? CAPTURAS : TMP
+      writeFileSync(path.join(pasta, `falha-${++falhaN}.png`), png, 'base64')
+      console.log(`   captura da falha: ${path.join(pasta, `falha-${falhaN}.png`)}`)
     } catch {}
   }
 }
@@ -83,7 +85,15 @@ caps.setBrowserName('wry')
 const d = await new Builder().withCapabilities(caps).usingServer('http://127.0.0.1:4444/').build()
 
 const $ = (css) => d.wait(until.elementLocated(By.css(css)), 10000)
-const porTexto = (texto, tag = '*') => d.wait(until.elementLocated(By.xpath(`//${tag}[contains(normalize-space(.), "${texto}")]`)), 10000)
+/** Espera por um texto; se não aparecer, o erro diz o que estava no ecrã (útil no CI, onde não há janela). */
+async function porTexto(texto, tag = '*', ms = 10000) {
+  try {
+    return await d.wait(until.elementLocated(By.xpath(`//${tag}[contains(normalize-space(.), "${texto}")]`)), ms)
+  } catch (e) {
+    const ecra = await d.executeScript('return document.body.innerText').catch(() => '')
+    throw new Error(`"${texto}" não apareceu em ${ms / 1000} s. No ecrã: ${String(ecra).replace(/\s+/g, ' ').slice(0, 300)}`)
+  }
+}
 const botao = (texto) => d.wait(until.elementLocated(By.xpath(`//button[contains(normalize-space(.), "${texto}") or @aria-label="${texto}"]`)), 10000)
 async function clicar(texto) {
   const b = await botao(texto)
@@ -175,8 +185,14 @@ try {
     if (aceitar.length) await aceitar[0].click()
     await clicar('Continuar')
     await escrever('Repetir a senha mestra', SENHA)
+    await esperar(400) // máquinas lentas: deixar a animação do passo assentar antes de seguir
     await clicar('Continuar')
-    await porTexto('Criar uma chave de recuperação')
+    if (!(await d.findElements(By.xpath('//*[contains(normalize-space(.), "Criar uma chave de recuperação")]'))).length) {
+      await esperar(1500)
+      const ainda = await d.findElements(By.xpath('//label[normalize-space(text())="Repetir a senha mestra"]'))
+      if (ainda.length) await clicar('Continuar') // o clique caiu durante a animação: tentar outra vez
+    }
+    await porTexto('Criar uma chave de recuperação', '*', 15000)
     await clicar('Continuar')
     await clicar('Criar o cofre')
     await d.wait(until.elementLocated(By.xpath('//*[contains(., "CHAVE DE RECUPERAÇÃO")]')), 30000)
