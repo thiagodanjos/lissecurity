@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["core", "src-tauri"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+authors = ["Thiago Anjos"]
+
+# O Argon2id em modo debug é dezenas de vezes mais lento: compilado sempre otimizado,
+# os testes correm com os parâmetros reais de produção em segundos e não em minutos.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.dev.package.chacha20poly1305]
+opt-level = 3
+[profile.dev.package.chacha20]
+opt-level = 3
+[profile.dev.package.zxcvbn]
+opt-level = 3
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

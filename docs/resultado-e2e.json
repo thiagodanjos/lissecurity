@@ -1,0 +1,175 @@
+{
+  "data": "2026-10-31T21:41:36.382Z",
+  "resultados": [
+    {
+      "nome": "primeiro uso mostra as boas-vindas",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "onboarding cria o cofre com chave de recuperação",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "visão geral com saudação e números reais",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "criar registo de senha",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "detalhe mostra a senha mascarada (o segredo não está no DOM)",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "revelar mostra a senha só depois de pedido",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "mais registos: senha reutilizada e fraca",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "conta bancária PT com IBAN validado",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "conta bancária BR com agência e chave Pix",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "cartão com número validado e só 4 dígitos visíveis",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "nota com códigos de recuperação",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "pesquisa interna encontra pelo título, nunca pela senha",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "paleta de comandos (Ctrl+K)",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "visão geral com alertas concretos",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "área Financeiro",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "segurança, gerador e definições",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "categorias: setas quando não cabem e menu com todas",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "código 2FA ao vivo igual ao calculado de forma independente",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "cópias automáticas cifradas para a pasta do Google Drive",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "pedir a senha mestra antes de revelar o IBAN (quando ligado)",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "página de gastos sem extratos explica como importar",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "copiar põe na área de transferência e limpa sozinha",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "a limpeza não apaga algo novo copiado pela pessoa",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "  (13 ficheiros verificados)",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "nenhum ficheiro escrito pela app tem dados em claro (cofre, temporários, caches)",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "bloquear (Ctrl+L) tira tudo do ecrã",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "com o cofre bloqueado a camada nativa recusa leituras",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "senha errada não abre e explica porquê",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "senha certa abre",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "uma revelação pedida antes do bloqueio não reaparece depois",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "trocar a senha mestra preserva os dados",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "minimizar bloqueia o cofre mas mantém o que se copiou para colar",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "bloqueio automático por inatividade (1 min, contado na camada nativa)",
+      "ok": true,
+      "detalhe": ""
+    },
+    {
+      "nome": "janela mais pequena continua utilizável",
+      "ok": true,
+      "detalhe": ""
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+[package]
+name = "lissecurity-core"
+description = "Núcleo do LisSecurity: criptografia, formato do cofre, persistência e modelo de dados (sem interface)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
+hkdf = "0.12.4"
+hmac = "0.12"
+sha1 = "0.10"
+sha2 = "0.10.9"
+getrandom = "0.3"
+subtle = "2.6"
+zeroize = { version = "1.8", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+unicode-normalization = "0.1"
+zxcvbn = "3"
+
+[dev-dependencies]
+tempfile = "3"

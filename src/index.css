@@ -1,0 +1,196 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   LisSecurity — sistema visual
+   Os valores de cor, raio, sombra e movimento são os da LisFilms
+   (web/src/index.css do repositório), para o cofre pertencer à mesma família.
+   O que é próprio do LisSecurity está marcado como tal.
+   ========================================================================== */
+@theme {
+  /* superfícies (do mais fundo ao mais elevado) — LisFilms */
+  --color-bg: #0b0d10;
+  --color-sidebar: #08090c;
+  --color-raised: #121519;
+  --color-card: #161a20;
+  --color-card-hover: #1d222a;
+  --color-border: #252b34;
+  --color-border-strong: #323a45;
+
+  /* texto — LisFilms */
+  --color-text: #f4f6f8;
+  --color-muted: #9aa3ad;
+  --color-faint: #7b8591;
+
+  /* marca — LisFilms */
+  --color-accent: #1ed760;
+  --color-accent-hover: #3be477;
+  --color-accent-soft: #122b1b;
+  --color-danger: #f23f42;
+  --color-gold: #f5c518;
+  /* LisSecurity: âmbar para "atenção" (não é erro) */
+  --color-warn: #f5a524;
+  --color-warn-soft: #2b2110;
+  --color-danger-soft: #2c1215;
+
+  --font-sans: "Inter Variable", "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", "JetBrains Mono", ui-monospace, monospace;
+
+  --shadow-glow: 0 0 24px 0 rgb(30 215 96 / 0.35);
+  --shadow-card: 0 8px 30px rgb(0 0 0 / 0.35);
+  --shadow-sobreposicao: 0 12px 40px rgb(0 0 0 / 0.5);
+
+  --radius-2xl: 1.25rem;
+
+  /* movimento — LisFilms: pressão 100–160 ms, estado 160–220 ms, painéis 220–300 ms */
+  --ease-suave: cubic-bezier(0.22, 1, 0.36, 1);
+  --duracao-pressao: 140ms;
+  --duracao-estado: 200ms;
+  --duracao-painel: 260ms;
+}
+
+/* tema "preto absoluto" (LisSecurity): as mesmas relações, sobre preto */
+html[data-tema="preto"] {
+  --color-bg: #000000;
+  --color-sidebar: #000000;
+  --color-raised: #0b0c0e;
+  --color-card: #101215;
+  --color-card-hover: #171a1f;
+  --color-border: #1f242b;
+  --color-border-strong: #2b323b;
+}
+
+/* cor "Azul LisGames" (Definições > Aparência) — os mesmos valores que a LisFilms usa no LisGames */
+html[data-cor="azul"] {
+  --color-accent: #22a7ff;
+  --color-accent-hover: #5cc0ff;
+  --color-accent-soft: #0c2334;
+  --shadow-glow: 0 0 24px 0 rgb(34 167 255 / 0.35);
+}
+html[data-cor="azul"] ::selection { background: rgb(34 167 255 / 0.3); }
+html[data-cor="azul"] .text-brand-gradient {
+  background: linear-gradient(92deg, #22a7ff 0%, #9ad8ff 55%, #22a7ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* filas que rolam na horizontal sem barra visível (as setas tratam disso) */
+.sem-barra { scrollbar-width: none; }
+.sem-barra::-webkit-scrollbar { display: none; }
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-sidebar);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* só o que é para ler ou copiar à mão é selecionável */
+input, textarea, .selecionavel {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+::selection {
+  background: rgb(30 215 96 / 0.3);
+}
+
+/* foco visível igual em toda a app (teclado) */
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+[role="option"]:focus-visible,
+[role="switch"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* scrollbar fina, como na LisFilms */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: #2a313b;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: #39424e; border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* texto com gradiente da marca — LisFilms */
+.text-brand-gradient {
+  background: linear-gradient(92deg, #1ed760 0%, #7cf3a8 55%, #1ed760 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* segredos e números em letra mono, com dígitos separados */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  letter-spacing: 0.01em;
+}
+
+/* pontos de máscara: um pouco mais espaçados para não parecerem uma linha */
+.mascara {
+  letter-spacing: 0.18em;
+}
+
+/* densidade compacta (Definições > Aparência) */
+html[data-densidade="compacta"] .linha-registo { padding-top: 0.45rem; padding-bottom: 0.45rem; }
+html[data-densidade="compacta"] .campo-detalhe { padding-top: 0.55rem; padding-bottom: 0.55rem; }
+
+/* fundo geométrico do ecrã de desbloqueio (estático: sem movimento permanente) */
+.grelha-fundo {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.035) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black 20%, transparent 75%);
+}
+
+/* animações curtas (só transformação e opacidade) */
+@keyframes entra {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes abana {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+@keyframes roda {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .entra { animation: entra 220ms var(--ease-suave) var(--atraso, 0ms) both; }
+  .abana { animation: abana 360ms var(--ease-suave); }
+  .toque:active { transform: scale(0.97); }
+}
+.roda { animation: roda 0.9s linear infinite; }
+
+/* "Reduzir animações" escolhido na app: o mesmo que o sistema pede */
+html[data-movimento="reduzido"] *,
+html[data-movimento="reduzido"] *::before,
+html[data-movimento="reduzido"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0ms !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+html[data-movimento="reduzido"] .roda { animation-duration: 1.4s !important; animation-iteration-count: infinite !important; }

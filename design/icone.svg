@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="fundo" cx="38%" cy="46%" r="75%">
+      <stop offset="0" stop-color="#11201a"/>
+      <stop offset="0.55" stop-color="#0c1012"/>
+      <stop offset="1" stop-color="#090b0e"/>
+    </radialGradient>
+    <filter id="brilho" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#fundo)"/>
+  <rect x="1.5" y="1.5" width="509" height="509" rx="110.5" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="3"/>
+  <!-- brilho discreto atrás da fechadura -->
+  <g fill="#1ed760" opacity="0.55" filter="url(#brilho)">
+    <circle cx="170" cy="230" r="34"/>
+    <path d="M158 250 L149 326 Q148 336 158 336 L182 336 Q192 336 191 326 L182 250 Z"/>
+  </g>
+  <!-- fechadura (o ponto da marca Lis transformado) -->
+  <g fill="#1ed760">
+    <circle cx="170" cy="230" r="34"/>
+    <path d="M158 250 L149 326 Q148 336 158 336 L182 336 Q192 336 191 326 L182 250 Z"/>
+  </g>
+  <!-- as duas barras da família Lis -->
+  <rect x="246" y="160" width="32" height="192" rx="16" fill="#f4f6f8"/>
+  <rect x="310" y="160" width="32" height="192" rx="16" fill="#1ed760"/>
+</svg>

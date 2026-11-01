@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "principal",
+  "description": "A única janela da aplicação: só pode ouvir os eventos da própria app e arrastar/maximizar pela barra de título. Tudo o resto passa pelos comandos explícitos em src/comandos.rs.",
+  "windows": ["principal"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize"
+  ]
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+target/
+src-tauri/gen/schemas/
+*.lissec
+*.lissec.*
+e2e/capturas-tmp/
+*.tsbuildinfo
