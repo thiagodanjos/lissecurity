@@ -48,7 +48,11 @@ pub fn init() -> TauriPlugin<Wry> {
 #[no_mangle]
 pub extern "system" fn Java_pt_lisfilms_lissecurity_Ponte_aoSairDaApp(_env: *mut c_void, _classe: *mut c_void) {
     if let Some(app) = APP.get() {
-        crate::sistema::saiu_da_app(app);
+        // Chega no fio principal. Bloquear espera pelo cofre, que pode estar ocupado por uma
+        // cópia de segurança a escrever através da camada Kotlin — ou seja, à espera deste
+        // mesmo fio. Noutro fio, nunca se prendem um ao outro.
+        let app = app.clone();
+        let _ = std::thread::Builder::new().name("lissecurity-saiu".into()).spawn(move || crate::sistema::saiu_da_app(&app));
     }
 }
 

@@ -187,7 +187,15 @@ pub fn run() {
     app.run(|app, evento| {
         if let RunEvent::Exit = evento {
             // ao sair: largar as chaves e limpar a área de transferência se ainda for nossa
+            #[cfg(desktop)]
             bloquear(app, "saida");
+            // no Android este evento chega no fio principal, que não pode ficar à espera do
+            // cofre (ver nativo.rs); a limpeza da área de transferência tem também o alarme
+            #[cfg(target_os = "android")]
+            {
+                let app = app.clone();
+                let _ = std::thread::Builder::new().name("lissecurity-saida".into()).spawn(move || bloquear(&app, "saida"));
+            }
         }
     });
 }

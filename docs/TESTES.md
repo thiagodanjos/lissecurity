@@ -152,8 +152,11 @@ WebDriver não controla); está coberta pelos testes do núcleo. A captura
    `setup` da app pedia à camada Kotlin para aplicar a proteção de ecrã e esperava pela resposta.
    No Android o `setup` corre no fio principal, e o Tauri entrega esses pedidos… ao fio
    principal — que estava à espera. O mesmo acontecia ao sair da app com «limpar ao bloquear»
-   ligado. Agora os pedidos sem resposta útil correm noutro fio e um pedido com resposta feito
-   no fio principal é recusado em vez de bloquear (`src-tauri/src/nativo.rs`).
+   ligado, e podia acontecer ao sair durante uma cópia de segurança automática (o fio principal
+   à espera do cofre, a cópia à espera do fio principal). Agora os pedidos sem resposta útil
+   correm noutro fio, um pedido com resposta feito no fio principal é recusado em vez de
+   bloquear, e sair da app (`onStop`) e fechá-la tratam do cofre fora do fio principal
+   (`src-tauri/src/nativo.rs`, `lib.rs`).
 
 ## O que os testes não cobrem
 
