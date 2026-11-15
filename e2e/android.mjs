@@ -67,9 +67,17 @@ function tecladoAberto() {
     return false
   }
 }
-async function fecharTeclado() {
-  if (SIMULADOR) return
+/** Tira o foco do campo e espera que o teclado desça (sem «voltar», que a app também ouve). */
+async function ocultarTeclado() {
   await js('document.activeElement && document.activeElement.blur && document.activeElement.blur()').catch(() => {})
+  if (SIMULADOR) return
+  for (let i = 0; i < 10 && tecladoAberto(); i++) await esperar(300)
+}
+
+/** Só no passo do botão voltar: com o teclado aberto, o primeiro «voltar» fecha-o (como num telemóvel). */
+async function fecharTecladoComVoltar() {
+  if (SIMULADOR) return
+  await ocultarTeclado()
   for (let i = 0; i < 3 && tecladoAberto(); i++) {
     tecla(VOLTAR)
     await esperar(800)
@@ -431,9 +439,10 @@ const detalheAberto = () => js(`(() => { ${AJUDANTES} return !!botao('Revelar se
 
 async function desbloquear(senha = SENHA) {
   await escrever('Senha mestra', senha)
-  // o teclado a fechar redimensiona a janela (fora da WebView): fecha-se antes de tocar no botão
-  await fecharTeclado()
-  await tocar('Desbloquear')
+  // Enter no campo envia o formulário, como no teclado do telemóvel. (Tocar no botão com o teclado
+  // a fechar falhava; e um «voltar» para o fechar, no primeiro ecrã, manda a app para trás.)
+  await cdp.enviar('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' })
+  await cdp.enviar('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
 }
 
 if (!SIMULADOR) iniciarLogcat()
@@ -518,7 +527,7 @@ try {
     if (!(await js(`!!document.querySelector('h2') && [...document.querySelectorAll('h2')].some((h) => h.innerText.trim() === ${JSON.stringify(TITULO)})`))) {
       await tocar(TITULO)
     }
-    await fecharTeclado()
+    await ocultarTeclado()
     await esperarAte(detalheAberto, 20_000, 'o detalhe não abriu')
     assegurar(!(await html()).includes(SEGREDO), 'a senha apareceu no DOM sem ser revelada')
     await tocar('Revelar senha')
@@ -536,7 +545,7 @@ try {
   await passo(
     'botão voltar: fecha o detalhe, volta ao início e manda a app para trás',
     async () => {
-      await fecharTeclado()
+      await fecharTecladoComVoltar()
       tecla(VOLTAR)
       // (o nome de utilizador também aparece na lista: o detalhe reconhece-se pelo «Revelar senha»)
       await esperarAte(async () => !(await detalheAberto()), 20_000, 'o detalhe não fechou com o voltar')
