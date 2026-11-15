@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Base64
+import android.view.View
 import android.view.WindowManager
 import android.webkit.WebView
 import androidx.activity.result.ActivityResult
@@ -116,6 +117,7 @@ class NativoPlugin(private val atividade: Activity) : Plugin(atividade) {
   override fun load(webView: WebView) {
     this.webView = webView
     Ponte.registarFioPrincipal()
+    if (Diagnostico.webViewEmSoftware(atividade.intent)) webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
     // teste ponta-a-ponta: só com -PdepurarWebView=true (nunca nas compilações publicadas)
     if (BuildConfig.DEPURAR_WEBVIEW) WebView.setWebContentsDebuggingEnabled(true)
     // os ficheiros partilhados numa sessão anterior (cifrados) saem da cache
@@ -488,6 +490,7 @@ class NativoPlugin(private val atividade: Activity) : Plugin(atividade) {
   fun protecaoEcra(invoke: Invoke) {
     val a = invoke.parseArgs(ArgsAtivo::class.java)
     atividade.runOnUiThread {
+      if (a.ativo && Diagnostico.semEcraProtegido(atividade.intent)) return@runOnUiThread
       if (a.ativo) atividade.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
       else atividade.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
     }

@@ -179,9 +179,9 @@ jobs:
           path: apk/*.apk
           if-no-files-found: error
 
-  # O APK de teste numa máquina limpa (sem os daemons da compilação), em duas configurações da
-  # emulação gráfica: a predefinida (Vulkan) e só com OpenGL ES, que costuma ser mais estável.
-  # Antes de instalar a app, o emulador fica 2 min parado: se morrer aí, o problema é dele.
+  # O APK de teste numa máquina limpa (sem os daemons da compilação). Antes de instalar a app, o
+  # emulador fica 2 min parado: se morrer aí, o problema é dele. As variantes (só no APK de teste)
+  # isolam a emulação gráfica: sem FLAG_SECURE e com a WebView a desenhar sem GPU.
   android-emulador:
     name: Teste no emulador (${{ matrix.nome }})
     needs: android
@@ -192,9 +192,11 @@ jobs:
       matrix:
         include:
           - nome: Android 14
-            opcoes: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -camera-front none
-          - nome: Android 14, sem Vulkan
-            opcoes: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -camera-front none -feature -Vulkan
+            variante: ""
+          - nome: Android 14, sem FLAG_SECURE
+            variante: teste_sem_flag_secure
+          - nome: Android 14, WebView em software
+            variante: teste_webview_software
     steps:
       - uses: actions/checkout@v5
         with:
@@ -215,12 +217,13 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         env:
           CAPTURAS: ${{ runner.temp }}/capturas-android
+          VARIANTE: ${{ matrix.variante }}
         with:
           api-level: 34
           arch: x86_64
           target: google_apis
           disable-animations: true
-          emulator-options: ${{ matrix.opcoes }}
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -camera-front none
           script: |
             sleep 120; echo "emulador sem a app ao fim de 2 min: $(adb get-state 2>&1)"
             adb install -r apk-teste/LisSecurity-teste-x86_64.apk

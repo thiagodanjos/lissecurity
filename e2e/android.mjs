@@ -23,6 +23,10 @@ const ATIVIDADE = `${PACOTE}/.MainActivity`
 const SIMULADOR = process.env.ALVO === 'simulador'
 const CAPTURAS = process.env.CAPTURAS ?? path.join(RAIZ, 'target', 'capturas-android')
 const PORTA = 9333
+// Variante do teste (só nos APK de teste): extras com que a app é aberta, separados por vírgulas,
+// p. ex. VARIANTE=teste_sem_flag_secure ou teste_webview_software
+const EXTRAS = (process.env.VARIANTE ?? '').split(',').filter(Boolean).flatMap((x) => ['--ez', x, 'true'])
+const SEM_FLAG_SECURE = EXTRAS.includes('teste_sem_flag_secure')
 const SENHA = 'cavalo-bateria-agrafo-correto-android'
 const SEGREDO = 'SENHA-FICTICIA-ANDROID-4417'
 const TITULO = 'Correio Exemplo Android'
@@ -302,9 +306,13 @@ let falhas = 0
 let semResposta = 0
 /** Quando o emulador ou a app deixam de responder, os passos seguintes já não dizem nada. */
 let parar = ''
-async function passo(nome, f, { soAndroid = false } = {}) {
+async function passo(nome, f, { soAndroid = false, salvo = '' } = {}) {
   if (soAndroid && SIMULADOR) {
     console.log(`– ${nome} (só no Android)`)
+    return
+  }
+  if (salvo) {
+    console.log(`– ${nome} (não se aplica: ${salvo})`)
     return
   }
   if (parar) {
@@ -337,7 +345,7 @@ async function abrirApp({ limpar = false } = {}) {
     return
   }
   if (limpar) shell('pm', 'clear', PACOTE)
-  shell('am', 'start', '-W', '-n', ATIVIDADE)
+  shell('am', 'start', '-W', '-n', ATIVIDADE, ...EXTRAS)
   await ligar()
 }
 
@@ -409,7 +417,7 @@ try {
       assegurar(bloco, 'janela da app não encontrada no dumpsys')
       assegurar(/fl=[^\n]*SECURE/.test(bloco), 'a janela não tem FLAG_SECURE')
     },
-    { soAndroid: true },
+    { soAndroid: true, salvo: SEM_FLAG_SECURE && 'variante sem FLAG_SECURE' },
   )
 
   await passo('guardar uma senha com o botão «+»', async () => {
@@ -458,7 +466,7 @@ try {
   await passo(
     'ao voltar à app o cofre está bloqueado (Bloquear ao sair da app)',
     async () => {
-      shell('am', 'start', '-n', ATIVIDADE)
+      shell('am', 'start', '-n', ATIVIDADE, ...EXTRAS)
       await ligar()
       await esperarTexto('Bloqueado porque saíste da app', 15_000)
       assegurar(!(await html()).includes(TITULO), 'o nome de um registo ficou no ecrã bloqueado')
@@ -486,7 +494,7 @@ try {
     async () => {
       shell('am', 'force-stop', PACOTE)
       await esperar(800)
-      shell('am', 'start', '-W', '-n', ATIVIDADE)
+      shell('am', 'start', '-W', '-n', ATIVIDADE, ...EXTRAS)
       await ligar()
       await esperarTexto('O teu cofre está bloqueado', 30_000)
       await desbloquear()

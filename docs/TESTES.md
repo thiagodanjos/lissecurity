@@ -42,7 +42,11 @@ confirma o **`FLAG_SECURE`** na janela, guarda uma senha pelo botão «+», veri
 ao início, manda a app para trás), confirma que **ao voltar à app o cofre está bloqueado**,
 recusa a senha errada, abre com a certa, **termina a app e volta a abri-la** para confirmar que o
 cofre ficou gravado, verifica que as definições não mostram opções do Windows e bloqueia à mão.
-As capturas ficam no artefacto `capturas-android` do CI.
+No CI, o APK de teste é compilado num job e testado noutro, numa máquina limpa, em duas
+configurações da emulação gráfica (predefinida e só OpenGL ES); antes de instalar a app, o
+emulador fica 2 minutos parado, para separar um problema do emulador de um da app. Quando algo
+falha, o teste escreve no registo do CI os erros de JavaScript, as mensagens do navegador e o
+logcat da app; as capturas e o logcat completo ficam nos artefactos `capturas-android-*`.
 
 **Assinatura do APK publicado.** A chave nunca entra no repositório. Para o CI publicar o APK na
 Release, cria-se uma vez uma chave (guardada fora do PC, com cópia):
