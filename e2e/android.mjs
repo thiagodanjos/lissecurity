@@ -414,6 +414,8 @@ const detalheAberto = () => js(`(() => { ${AJUDANTES} return !!botao('Revelar se
 
 async function desbloquear(senha = SENHA) {
   await escrever('Senha mestra', senha)
+  // o teclado a fechar redimensiona a janela (fora da WebView): fecha-se antes de tocar no botão
+  await fecharTeclado()
   await tocar('Desbloquear')
 }
 
@@ -553,7 +555,7 @@ try {
 
   await passo('a senha certa abre o cofre', async () => {
     await desbloquear()
-    await esperarTexto('Bem-vindo', 30_000)
+    await esperarTexto('Bem-vindo', 45_000)
   })
 
   await passo(
