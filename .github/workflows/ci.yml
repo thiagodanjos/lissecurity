@@ -131,6 +131,14 @@ jobs:
         run: |
           npx tauri android build --target x86_64 --apk
           mv src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk "$RUNNER_TEMP/teste.apk"
+      # os daemons do Gradle e do Kotlin ficam com ~2 GB cada depois da compilação: o emulador
+      # precisa dessa memória (sem ela, o sistema pode matá-lo a meio do teste)
+      - name: Libertar memória para o emulador
+        run: |
+          (cd src-tauri/gen/android && ./gradlew --stop) || true
+          pkill -f KotlinCompileDaemon || true
+          free -m
+          df -h /
       - name: Ativar a aceleração do emulador (KVM)
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -149,6 +157,12 @@ jobs:
           script: |
             adb install -r "$RUNNER_TEMP/teste.apk"
             node e2e/android.mjs
+      - name: Diagnóstico do anfitrião (se o teste no emulador falhar)
+        if: failure()
+        run: |
+          free -m
+          df -h /
+          sudo dmesg -T | grep -iE "killed process|out of memory|oom" | tail -20 || true
       - name: Capturas do teste no Android
         if: always()
         uses: actions/upload-artifact@v4

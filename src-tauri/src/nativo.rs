@@ -24,12 +24,16 @@ use zeroize::Zeroizing;
 use crate::estado::{ErroUi, R};
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
+/// O fio principal (de interface) do Android, onde o Tauri constrói a app.
+static FIO_PRINCIPAL: OnceLock<std::thread::ThreadId> = OnceLock::new();
 
 pub struct Nativo(PluginHandle<Wry>);
 
 pub fn init() -> TauriPlugin<Wry> {
     Builder::new("lisnativo")
         .setup(|app, api| {
+            // a app é construída no fio principal do Android (dentro do onCreate da Activity)
+            let _ = FIO_PRINCIPAL.set(std::thread::current().id());
             let h = api.register_android_plugin("pt.lisfilms.lissecurity", "NativoPlugin")?;
             app.manage(Nativo(h));
             let _ = APP.set(app.clone());
@@ -70,9 +74,39 @@ fn erro(e: tauri::plugin::mobile::PluginInvokeError) -> ErroUi {
     }
 }
 
+/// Estamos no fio principal do Android? Lá, o processo e o fio têm o mesmo número
+/// (`/proc/thread-self` → `<pid>/task/<tid>`); se o sistema não o disser, compara-se com o fio
+/// guardado quando a app arrancou.
+fn no_fio_principal() -> bool {
+    if let Ok(l) = std::fs::read_link("/proc/thread-self") {
+        if let Some((pid, tid)) = l.to_string_lossy().split_once("/task/") {
+            return pid == tid;
+        }
+    }
+    FIO_PRINCIPAL.get().is_some_and(|id| *id == std::thread::current().id())
+}
+
+/// Pede um comando à camada Kotlin e espera pela resposta.
+///
+/// O Tauri entrega o pedido ao fio principal do Android e este fio fica à espera: feito a
+/// partir do próprio fio principal (o `setup` da app, o `onStop` da Activity…), a app ficava
+/// bloqueada para sempre. Aí recusa-se; os pedidos sem resposta útil usam `pedir`.
 fn chamar<T: DeserializeOwned>(app: &AppHandle, metodo: &str, args: impl Serialize) -> R<T> {
+    if no_fio_principal() {
+        return Err(ErroUi::novo("sistema", "Pedido ao Android feito no fio principal."));
+    }
     let n = app.try_state::<Nativo>().ok_or_else(|| ErroUi::novo("sistema", "A camada Android não arrancou."))?;
     n.0.run_mobile_plugin::<T>(metodo, args).map_err(erro)
+}
+
+/// Pedidos que não precisam de resposta (proteção do ecrã, limpar a área de transferência, ir
+/// para trás): correm noutro fio, por isso podem ser feitos de qualquer lado, incluindo do fio
+/// principal.
+fn pedir(app: &AppHandle, metodo: &'static str, args: serde_json::Value) {
+    let app = app.clone();
+    let _ = std::thread::Builder::new().name("lissecurity-android".into()).spawn(move || {
+        let _ = chamar::<serde_json::Value>(&app, metodo, args);
+    });
 }
 
 // ───────────────────────────── ficheiros (Storage Access Framework) ─────────────────────────────
@@ -174,8 +208,9 @@ pub fn copiar(app: &AppHandle, texto: &str, segundos: u32) -> R<()> {
     Ok(())
 }
 
+/// Pode ser pedido ao bloquear, também a partir do fio principal (sair da app).
 pub fn limpar_area_transferencia(app: &AppHandle) {
-    let _ = chamar::<serde_json::Value>(app, "limparAreaTransferencia", json!({}));
+    pedir(app, "limparAreaTransferencia", json!({}));
 }
 
 pub fn abrir_endereco(app: &AppHandle, url: &str) -> R<()> {
@@ -185,12 +220,13 @@ pub fn abrir_endereco(app: &AppHandle, url: &str) -> R<()> {
 
 /// FLAG_SECURE: o conteúdo não aparece em capturas, gravações de ecrã nem na lista de apps
 /// recentes.
+/// Chamado também no arranque (fio principal); a Activity já liga a proteção no `onCreate`.
 pub fn definir_protecao_ecra(app: &AppHandle, ativo: bool) {
-    let _ = chamar::<serde_json::Value>(app, "protecaoEcra", json!({ "ativo": ativo }));
+    pedir(app, "protecaoEcra", json!({ "ativo": ativo }));
 }
 
 pub fn para_segundo_plano(app: &AppHandle) {
-    let _ = chamar::<serde_json::Value>(app, "paraSegundoPlano", json!({}));
+    pedir(app, "paraSegundoPlano", json!({}));
 }
 
 /// Margens do sistema (barra de estado, navegação, recorte do ecrã e teclado), em píxeis CSS.
@@ -257,5 +293,9 @@ pub fn biometria_desbloquear(app: &AppHandle, id_cofre: &str) -> R<Zeroizing<[u8
 }
 
 pub fn biometria_desativar(app: &AppHandle) {
-    let _ = chamar::<serde_json::Value>(app, "biometriaDesativar", json!({}));
+    if no_fio_principal() {
+        pedir(app, "biometriaDesativar", json!({}));
+    } else {
+        let _ = chamar::<serde_json::Value>(app, "biometriaDesativar", json!({}));
+    }
 }

@@ -13,7 +13,7 @@
 // serve para validar o próprio teste num computador sem emulador.
 
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdirSync, writeFileSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, writeFileSync, mkdtempSync, openSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -42,6 +42,25 @@ const shell = (...args) => adb('shell', ...args)
 const tecla = (codigo) => shell('input', 'keyevent', String(codigo))
 const VOLTAR = 4
 const INICIO = 3
+
+/** O emulador ainda responde ao adb? */
+function dispositivoVivo() {
+  try {
+    return adb('get-state').trim() === 'device'
+  } catch {
+    return false
+  }
+}
+
+/** Registo do sistema durante o teste (vai com as capturas: só há dados fictícios). */
+let logcat = null
+function iniciarLogcat() {
+  try {
+    adb('logcat', '-c')
+  } catch {}
+  const f = openSync(path.join(CAPTURAS, 'logcat.txt'), 'w')
+  logcat = spawn('adb', ['logcat', '-v', 'threadtime'], { stdio: ['ignore', f, f] })
+}
 
 /** A atividade que está à frente (a que recebe o toque). */
 function emPrimeiroPlano() {
@@ -236,19 +255,31 @@ async function captura(nome) {
 
 const resultados = []
 let falhas = 0
+let semResposta = 0
+/** Quando o emulador ou a app deixam de responder, os passos seguintes já não dizem nada. */
+let parar = ''
 async function passo(nome, f, { soAndroid = false } = {}) {
   if (soAndroid && SIMULADOR) {
     console.log(`– ${nome} (só no Android)`)
     return
   }
+  if (parar) {
+    resultados.push({ nome, ok: false })
+    console.log(`✘ ${nome} — não corrido: ${parar}`)
+    return
+  }
   try {
     await f()
     resultados.push({ nome, ok: true })
+    semResposta = 0
     console.log(`✔ ${nome}`)
   } catch (e) {
+    const msg = String(e?.message ?? e).split('\n')[0]
     resultados.push({ nome, ok: false })
-    console.log(`✘ ${nome} — ${String(e?.message ?? e).split('\n')[0]}`)
+    console.log(`✘ ${nome} — ${msg}`)
     await captura(`falha-${++falhas}`)
+    if (!SIMULADOR && !dispositivoVivo()) parar = 'o emulador deixou de responder'
+    else if (/sem resposta/.test(msg) && ++semResposta >= 2) parar = 'a app deixou de responder (ver logcat.txt)'
   }
 }
 
@@ -269,6 +300,8 @@ async function desbloquear(senha = SENHA) {
   await escrever('Senha mestra', senha)
   await tocar('Desbloquear')
 }
+
+if (!SIMULADOR) iniciarLogcat()
 
 try {
   await passo(
@@ -430,6 +463,19 @@ try {
     try {
       adb('forward', '--remove', `tcp:${PORTA}`)
     } catch {}
+    if (resultados.some((r) => !r.ok)) {
+      // para perceber uma falha sem acesso ao emulador: falhas da app e o estado dos processos
+      for (const [ficheiro, args] of [
+        ['logcat-falhas.txt', ['logcat', '-d', '-b', 'crash']],
+        ['processos.txt', ['shell', 'ps', '-A']],
+        ['atividades.txt', ['shell', 'dumpsys', 'activity', 'activities']],
+      ]) {
+        try {
+          writeFileSync(path.join(CAPTURAS, ficheiro), adb(...args))
+        } catch {}
+      }
+    }
+    logcat?.kill()
   }
 }
 

@@ -148,6 +148,12 @@ WebDriver não controla); está coberta pelos testes do núcleo. A captura
    uma segunda tentativa sem as marcas de exclusão do histórico. Coberto pelo E2E.
 5. **v0.2 — categorias que não cabiam ficavam inacessíveis** (fila sem barra de deslocamento):
    agora há setas, roda do rato na horizontal, desvanecimento nas pontas e o menu "Todas".
+6. **v0.3 — a app Android ficava parada no arranque** (encontrado pelo teste no emulador): o
+   `setup` da app pedia à camada Kotlin para aplicar a proteção de ecrã e esperava pela resposta.
+   No Android o `setup` corre no fio principal, e o Tauri entrega esses pedidos… ao fio
+   principal — que estava à espera. O mesmo acontecia ao sair da app com «limpar ao bloquear»
+   ligado. Agora os pedidos sem resposta útil correm noutro fio e um pedido com resposta feito
+   no fio principal é recusado em vez de bloquear (`src-tauri/src/nativo.rs`).
 
 ## O que os testes não cobrem
 
