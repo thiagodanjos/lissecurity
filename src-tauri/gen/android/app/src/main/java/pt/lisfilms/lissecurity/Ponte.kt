@@ -7,4 +7,10 @@ package pt.lisfilms.lissecurity
 object Ponte {
   /** A app deixou de estar visível: o Rust bloqueia o cofre se a política o pedir. */
   @JvmStatic external fun aoSairDaApp()
+
+  /**
+   * Chamado quando o plugin carrega (no fio principal, com a biblioteca já carregada): diz ao
+   * Rust qual é o fio principal do Android, onde não pode esperar por respostas da camada Kotlin.
+   */
+  @JvmStatic external fun registarFioPrincipal()
 }

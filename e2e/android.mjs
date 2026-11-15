@@ -87,8 +87,16 @@ class Cdp {
     this.n = 0
     this.pendentes = new Map()
     this.ws = new WebSocket(url)
+    /** erros de JavaScript, mensagens da consola e do navegador (CSP, rede), para o diagnóstico */
+    this.eventos = []
     this.ws.onmessage = (m) => {
       const r = JSON.parse(String(m.data))
+      if (!r.id && r.method) {
+        const e = resumirEvento(r.method, r.params)
+        if (e) this.eventos.push(e)
+        if (this.eventos.length > 150) this.eventos.shift()
+        return
+      }
       const p = r.id && this.pendentes.get(r.id)
       if (!p) return
       this.pendentes.delete(r.id)
@@ -117,6 +125,41 @@ class Cdp {
 
 let cdp = null
 let navegador = null
+
+function resumirEvento(metodo, p) {
+  if (metodo === 'Runtime.exceptionThrown') return `exceção: ${p.exceptionDetails?.exception?.description ?? p.exceptionDetails?.text}`.slice(0, 400)
+  if (metodo === 'Runtime.consoleAPICalled' && ['error', 'warning', 'assert'].includes(p.type))
+    return `consola.${p.type}: ${(p.args ?? []).map((a) => a.value ?? a.description ?? a.type).join(' ')}`.slice(0, 400)
+  if (metodo === 'Log.entryAdded' && p.entry?.level !== 'verbose') return `navegador.${p.entry.level}: ${p.entry.text} ${p.entry.url ?? ''}`.slice(0, 400)
+  return null
+}
+
+/** Escreve no registo do CI o que ajuda a perceber uma falha (o artefacto pode não estar à mão). */
+async function diagnostico(titulo) {
+  console.log(`   ── diagnóstico: ${titulo}`)
+  try {
+    const estado = await js(`JSON.stringify({ url: location.href, pronto: document.readyState, scripts: document.scripts.length, tauri: !!window.__TAURI_INTERNALS__, plataforma: document.documentElement.dataset.plataforma ?? null, raiz: document.getElementById('root')?.innerHTML.length ?? -1 })`)
+    console.log(`   página: ${estado}`)
+  } catch (e) {
+    console.log(`   página: sem resposta (${String(e?.message ?? e).slice(0, 120)})`)
+  }
+  for (const e of cdp?.eventos ?? []) console.log(`   ${e}`)
+  if (SIMULADOR) return
+  try {
+    const foco = shell('dumpsys', 'window').split('\n').filter((l) => /mCurrentFocus|mFocusedApp/.test(l)).map((l) => l.trim())
+    console.log(`   janela com foco: ${foco.join(' | ')}`)
+  } catch {}
+  try {
+    const pid = shell('pidof', PACOTE).trim()
+    const linhas = adb('logcat', '-d', '-t', '3000', '-v', 'brief')
+      .split('\n')
+      .filter((l) => (pid && l.includes(`(${pid.padStart(5)})`)) || l.includes(`( ${pid})`) || /AndroidRuntime|FATAL|ANR in|lissecurity|Tauri|RustStdout|chromium|cr_|libc|DEBUG/.test(l))
+    console.log(`   logcat (pid ${pid || '?'}, ${linhas.length} linhas relevantes, últimas 80):`)
+    for (const l of linhas.slice(-80)) console.log(`   | ${l.slice(0, 300)}`)
+  } catch (e) {
+    console.log(`   logcat indisponível: ${String(e?.message ?? e).slice(0, 120)}`)
+  }
+}
 
 /** Liga-se ao WebView da app (Android) ou a um Chromium com o simulador. */
 async function ligar() {
@@ -156,6 +199,7 @@ async function ligar() {
   await cdp.aberto
   await cdp.enviar('Runtime.enable')
   await cdp.enviar('Page.enable')
+  await cdp.enviar('Log.enable').catch(() => {})
   if (SIMULADOR) {
     await cdp.enviar('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 1, mobile: true })
     await cdp.enviar('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
@@ -278,6 +322,7 @@ async function passo(nome, f, { soAndroid = false } = {}) {
     resultados.push({ nome, ok: false })
     console.log(`✘ ${nome} — ${msg}`)
     await captura(`falha-${++falhas}`)
+    if (falhas <= 2) await diagnostico(nome)
     if (!SIMULADOR && !dispositivoVivo()) parar = 'o emulador deixou de responder'
     else if (/sem resposta/.test(msg) && ++semResposta >= 2) parar = 'a app deixou de responder (ver logcat.txt)'
   }
@@ -318,7 +363,17 @@ try {
 
   await passo('primeiro uso mostra as boas-vindas (sem internet)', async () => {
     await abrirApp({ limpar: true })
-    await esperarTexto('Criar um cofre novo', 40_000)
+    try {
+      await esperarTexto('Criar um cofre novo', 25_000)
+    } catch (e) {
+      // página em branco: recarregar com o DevTools já ligado mostra os erros desde o arranque
+      await diagnostico('primeiro ecrã não apareceu — a recarregar a página')
+      if (SIMULADOR) throw e
+      cdp.eventos.length = 0
+      await cdp.enviar('Page.reload', { ignoreCache: true }).catch(() => {})
+      await esperar(1500)
+      await esperarTexto('Criar um cofre novo', 25_000)
+    }
     const t = await textoPagina()
     assegurar(t.includes('telemóvel'), 'os textos ainda falam do computador')
     await captura('01-boas-vindas')

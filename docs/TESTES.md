@@ -148,15 +148,13 @@ WebDriver não controla); está coberta pelos testes do núcleo. A captura
    uma segunda tentativa sem as marcas de exclusão do histórico. Coberto pelo E2E.
 5. **v0.2 — categorias que não cabiam ficavam inacessíveis** (fila sem barra de deslocamento):
    agora há setas, roda do rato na horizontal, desvanecimento nas pontas e o menu "Todas".
-6. **v0.3 — a app Android ficava parada no arranque** (encontrado pelo teste no emulador): o
-   `setup` da app pedia à camada Kotlin para aplicar a proteção de ecrã e esperava pela resposta.
-   No Android o `setup` corre no fio principal, e o Tauri entrega esses pedidos… ao fio
-   principal — que estava à espera. O mesmo acontecia ao sair da app com «limpar ao bloquear»
-   ligado, e podia acontecer ao sair durante uma cópia de segurança automática (o fio principal
-   à espera do cofre, a cópia à espera do fio principal). Agora os pedidos sem resposta útil
-   correm noutro fio, um pedido com resposta feito no fio principal é recusado em vez de
-   bloquear, e sair da app (`onStop`) e fechá-la tratam do cofre fora do fio principal
-   (`src-tauri/src/nativo.rs`, `lib.rs`).
+6. **v0.3 — pedidos à camada Kotlin a partir do fio principal do Android bloqueavam a app**: o
+   Tauri entrega esses pedidos ao fio principal e espera pela resposta. Ao sair da app (`onStop`,
+   no fio principal) com «limpar ao bloquear» ligado — ou durante uma cópia automática, com o
+   cofre ocupado a escrever através do fio principal — a app ficava parada. Agora os pedidos sem
+   resposta útil correm noutro fio, um pedido com resposta feito no fio principal é recusado em
+   vez de bloquear, e sair da app e fechá-la tratam do cofre fora do fio principal
+   (`src-tauri/src/nativo.rs`, `lib.rs`). Apanhado ao investigar o teste no emulador.
 
 ## O que os testes não cobrem
 

@@ -24,7 +24,9 @@ use zeroize::Zeroizing;
 use crate::estado::{ErroUi, R};
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
-/// O fio principal (de interface) do Android, onde o Tauri constrói a app.
+/// O fio principal (de interface) do Android, registado pelo plugin Kotlin quando carrega. O
+/// Rust da app (o `setup`, os comandos) corre noutros fios; este é o dos ciclos de vida da
+/// Activity.
 static FIO_PRINCIPAL: OnceLock<std::thread::ThreadId> = OnceLock::new();
 
 pub struct Nativo(PluginHandle<Wry>);
@@ -32,8 +34,6 @@ pub struct Nativo(PluginHandle<Wry>);
 pub fn init() -> TauriPlugin<Wry> {
     Builder::new("lisnativo")
         .setup(|app, api| {
-            // a app é construída no fio principal do Android (dentro do onCreate da Activity)
-            let _ = FIO_PRINCIPAL.set(std::thread::current().id());
             let h = api.register_android_plugin("pt.lisfilms.lissecurity", "NativoPlugin")?;
             app.manage(Nativo(h));
             let _ = APP.set(app.clone());
@@ -54,6 +54,12 @@ pub extern "system" fn Java_pt_lisfilms_lissecurity_Ponte_aoSairDaApp(_env: *mut
         let app = app.clone();
         let _ = std::thread::Builder::new().name("lissecurity-saiu".into()).spawn(move || crate::sistema::saiu_da_app(&app));
     }
+}
+
+/// Chamado pelo plugin Kotlin no `load` (`Ponte.registarFioPrincipal`), no fio principal.
+#[no_mangle]
+pub extern "system" fn Java_pt_lisfilms_lissecurity_Ponte_registarFioPrincipal(_env: *mut c_void, _classe: *mut c_void) {
+    let _ = FIO_PRINCIPAL.set(std::thread::current().id());
 }
 
 /// Erros da camada Kotlin: `invoke.reject(mensagem, codigo)`. Os códigos são uma lista
@@ -80,7 +86,7 @@ fn erro(e: tauri::plugin::mobile::PluginInvokeError) -> ErroUi {
 
 /// Estamos no fio principal do Android? Lá, o processo e o fio têm o mesmo número
 /// (`/proc/thread-self` → `<pid>/task/<tid>`); se o sistema não o disser, compara-se com o fio
-/// guardado quando a app arrancou.
+/// que o plugin registou.
 fn no_fio_principal() -> bool {
     if let Ok(l) = std::fs::read_link("/proc/thread-self") {
         if let Some((pid, tid)) = l.to_string_lossy().split_once("/task/") {
@@ -93,7 +99,7 @@ fn no_fio_principal() -> bool {
 /// Pede um comando à camada Kotlin e espera pela resposta.
 ///
 /// O Tauri entrega o pedido ao fio principal do Android e este fio fica à espera: feito a
-/// partir do próprio fio principal (o `setup` da app, o `onStop` da Activity…), a app ficava
+/// partir do próprio fio principal (o `onStop` da Activity, por exemplo), a app ficava
 /// bloqueada para sempre. Aí recusa-se; os pedidos sem resposta útil usam `pedir`.
 fn chamar<T: DeserializeOwned>(app: &AppHandle, metodo: &str, args: impl Serialize) -> R<T> {
     if no_fio_principal() {
@@ -224,7 +230,7 @@ pub fn abrir_endereco(app: &AppHandle, url: &str) -> R<()> {
 
 /// FLAG_SECURE: o conteúdo não aparece em capturas, gravações de ecrã nem na lista de apps
 /// recentes.
-/// Chamado também no arranque (fio principal); a Activity já liga a proteção no `onCreate`.
+/// Chamado também no arranque; a Activity já liga a proteção no `onCreate`.
 pub fn definir_protecao_ecra(app: &AppHandle, ativo: bool) {
     pedir(app, "protecaoEcra", json!({ "ativo": ativo }));
 }

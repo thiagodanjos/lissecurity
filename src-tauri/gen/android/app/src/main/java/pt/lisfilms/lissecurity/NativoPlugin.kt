@@ -115,6 +115,7 @@ class NativoPlugin(private val atividade: Activity) : Plugin(atividade) {
 
   override fun load(webView: WebView) {
     this.webView = webView
+    Ponte.registarFioPrincipal()
     // teste ponta-a-ponta: só com -PdepurarWebView=true (nunca nas compilações publicadas)
     if (BuildConfig.DEPURAR_WEBVIEW) WebView.setWebContentsDebuggingEnabled(true)
     // os ficheiros partilhados numa sessão anterior (cifrados) saem da cache
