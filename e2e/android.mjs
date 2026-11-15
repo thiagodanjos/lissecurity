@@ -231,6 +231,9 @@ async function ligar() {
   await cdp.enviar('Runtime.enable')
   await cdp.enviar('Page.enable')
   await cdp.enviar('Log.enable').catch(() => {})
+  // a app segue «movimento reduzido» (como pede o sistema): sem deslizes nem esmaecimentos, o que
+  // se mede é onde as coisas ficam — no emulador sem GPU cada fotograma pode levar segundos
+  await cdp.enviar('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] }).catch(() => {})
   if (SIMULADOR) {
     await cdp.enviar('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 1, mobile: true })
     await cdp.enviar('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
@@ -294,7 +297,14 @@ async function tocarEm(seletorJs, descricao) {
   )
   // toca só quando o elemento parou (scroll, folhas a subir, teclado a fechar): no emulador do CI
   // a WebView desenha sem GPU e cada fotograma pode levar segundos
-  const medir = () => js(`(() => { ${AJUDANTES} const e = ${seletorJs}; if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`)
+  // cada medição espera por dois fotogramas (com um limite): duas medições no mesmo fotograma
+  // dariam sempre o mesmo sítio, mesmo com o elemento a meio de uma animação
+  const medir = () =>
+    js(`new Promise((ok) => {
+      const fim = () => { ${AJUDANTES} const e = ${seletorJs}; if (!e) return ok(null); const r = e.getBoundingClientRect(); ok({ x: r.left + r.width / 2, y: r.top + r.height / 2 }) }
+      const t = setTimeout(fim, 4000)
+      requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(t); fim() }))
+    })`)
   let anterior = null
   for (let i = 0; i < 25; i++) {
     await esperar(200)
@@ -362,7 +372,7 @@ async function passo(nome, f, { soAndroid = false, salvo = '' } = {}) {
     console.log(`✔ ${nome}`)
   } catch (e) {
     const msg = String(e?.message ?? e).split('\n')[0]
-    resultados.push({ nome, ok: false })
+    resultados.push({ nome, ok: false, msg: msg.slice(0, 200) })
     console.log(`✘ ${nome} — ${msg}`)
     await captura(`falha-${++falhas}`)
     if (falhas <= 2) await diagnostico(nome)
@@ -383,6 +393,9 @@ async function abrirApp({ limpar = false } = {}) {
   shell('am', 'start', '-W', '-n', ATIVIDADE, ...EXTRAS)
   await ligar()
 }
+
+/** O detalhe de um registo está aberto (tem o botão de revelar a senha)? */
+const detalheAberto = () => js(`(() => { ${AJUDANTES} return !!botao('Revelar senha') })()`)
 
 async function desbloquear(senha = SENHA) {
   await escrever('Senha mestra', senha)
@@ -472,7 +485,7 @@ try {
       await tocar(TITULO)
     }
     await fecharTeclado()
-    await esperarAte(async () => (await textoPagina()).includes('ines.teste'), 20_000, 'o detalhe não abriu')
+    await esperarAte(detalheAberto, 20_000, 'o detalhe não abriu')
     assegurar(!(await html()).includes(SEGREDO), 'a senha apareceu no DOM sem ser revelada')
     await tocar('Revelar senha')
     await esperarAte(async () => (await html()).includes(SEGREDO), 20_000, 'revelar não mostrou a senha')
@@ -491,7 +504,8 @@ try {
     async () => {
       await fecharTeclado()
       tecla(VOLTAR)
-      await esperarAte(async () => !(await textoPagina()).includes('ines.teste'), 20_000, 'o detalhe não fechou com o voltar')
+      // (o nome de utilizador também aparece na lista: o detalhe reconhece-se pelo «Revelar senha»)
+      await esperarAte(async () => !(await detalheAberto()), 20_000, 'o detalhe não fechou com o voltar')
       tecla(VOLTAR)
       await esperarTexto('Bem-vindo', 20_000)
       tecla(VOLTAR)
@@ -580,5 +594,10 @@ try {
 }
 
 const ok = resultados.filter((r) => r.ok).length
+const falhados = resultados.filter((r) => !r.ok)
+if (falhados.length) {
+  console.log('\nPassos que falharam:')
+  for (const r of falhados) console.log(`  ✘ ${r.nome} — ${r.msg ?? ''}`)
+}
 console.log(`\n${ok}/${resultados.length} passos certos${SIMULADOR ? ' (simulador)' : ''}. Capturas em ${CAPTURAS}`)
 process.exit(ok === resultados.length ? 0 : 1)
