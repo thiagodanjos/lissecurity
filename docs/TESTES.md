@@ -82,7 +82,8 @@ entra na compilação da app.
 | `cargo clippy` — Linux (`--workspace --all-targets`), Android (`aarch64-linux-android`) e Windows (`x86_64-pc-windows-gnu`) | 0 avisos |
 | APK de depuração e APK final (`aarch64`): Kotlin compilado, R8 mantém a ponte JNI e o plugin, lint sem erros | compila (APK final com 10 MB) |
 | Manifesto final: sem `INTERNET`, sem cópias do Android, só a atividade principal exportada | verificado (`aapt2`, manifesto fundido) |
-| `e2e/android.mjs` no simulador da interface | **9/9** (os 5 passos só de Android correm no emulador do CI) |
+| `e2e/android.mjs` no simulador da interface | **9/9** |
+| `e2e/android.mjs` na app real, emulador Android 14 no CI (APK final com R8, WebView sem GPU) | **14/14** — sem internet nem cópias do Android, boas-vindas, criar o cofre com chave de recuperação, `FLAG_SECURE`, guardar pelo «+», senha fora do DOM até revelar, copiar, botão voltar, bloquear ao sair da app, senha errada, senha certa, fechar e reabrir com os dados lá, definições sem opções do Windows, bloquear à mão |
 
 ## Resultados (v0.2.0, 31/10/2026)
 
