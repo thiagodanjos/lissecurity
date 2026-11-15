@@ -112,9 +112,19 @@ async function aguardarGuardado(titulo, ms = 20000) {
 }
 const botao = (texto) => d.wait(until.elementLocated(By.xpath(`//button[contains(normalize-space(.), "${texto}") or @aria-label="${texto}"]`)), 10000)
 async function clicar(texto) {
-  const b = await botao(texto)
-  await d.wait(until.elementIsEnabled(b), 10000)
-  await clicarEl(b)
+  for (let tentativa = 0; ; tentativa++) {
+    try {
+      const b = await botao(texto)
+      await d.wait(until.elementIsEnabled(b), 10000)
+      await clicarEl(b)
+      return
+    } catch (e) {
+      // a interface voltou a desenhar o botão entre encontrá-lo e clicar (por exemplo, a lateral
+      // que troca de área com animação, em máquinas lentas): procura-o outra vez
+      if (e?.name !== 'StaleElementReferenceError' || tentativa >= 2) throw e
+      await esperar(400)
+    }
+  }
 }
 /** Clica num elemento; se estiver tapado (aviso, animação) ou fora da área visível, clica por script. */
 async function clicarEl(el) {
