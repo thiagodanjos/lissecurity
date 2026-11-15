@@ -166,9 +166,12 @@ jobs:
       - name: Confirmar o APK (sem internet, assinatura)
         run: |
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "build-tools: $BT"
           "$BT/aapt2" dump permissions apk/*.apk | tee permissoes.txt
           if grep -q "android.permission.INTERNET" permissoes.txt; then echo "::error::O APK pede acesso à internet"; exit 1; fi
-          "$BT/apksigner" verify --print-certs apk/*.apk | grep -E "Signer #1 certificate (DN|SHA-256)"
+          "$BT/apksigner" verify --verbose --print-certs apk/*.apk > assinatura.txt 2>&1 || true
+          grep -vE "^WARNING: META-INF" assinatura.txt | head -30
+          grep -q "^Verifies" assinatura.txt || { echo "::error::A assinatura do APK não é válida"; exit 1; }
       - name: Publicar o APK como artefacto
         uses: actions/upload-artifact@v4
         with:
