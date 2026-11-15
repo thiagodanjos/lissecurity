@@ -422,7 +422,8 @@ try {
       await escrever('Categoria', cat)
       if (i === 0) await escrever('Chave 2FA (TOTP)', SEGREDO_2FA)
       await teclas('s')
-      await porTexto('Registo guardado no cofre')
+      // o aviso é passageiro: numa máquina lenta conta também ver o registo guardado
+      await aguardarGuardado(`Serviço ${i + 1} (exemplo)`)
       await semDialogos()
     }
     const direita = await d.wait(until.elementLocated(By.css('button[aria-label="Ver as seguintes"]')), 8000)

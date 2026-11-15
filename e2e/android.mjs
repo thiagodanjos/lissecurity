@@ -27,6 +27,18 @@ const PORTA = 9333
 // p. ex. VARIANTE=teste_sem_flag_secure ou teste_webview_software
 const EXTRAS = (process.env.VARIANTE ?? '').split(',').filter(Boolean).flatMap((x) => ['--ez', x, 'true'])
 const SEM_FLAG_SECURE = EXTRAS.includes('teste_sem_flag_secure')
+const SEM_GPU = EXTRAS.includes('teste_webview_software')
+
+// Sem GPU (emulador do CI), desfocar o fundo e as sombras custa segundos por fotograma e os toques
+// ficam sem resposta. O teste desliga só esses efeitos visuais, com uma folha de estilos do CSSOM
+// (não mexe no código nem na CSP da app, nem no comportamento que se testa).
+const SEM_EFEITOS = `(() => {
+  if (window.__semEfeitos) return
+  window.__semEfeitos = true
+  const f = new CSSStyleSheet()
+  f.replaceSync('*,*::before,*::after{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;filter:none!important;box-shadow:none!important;text-shadow:none!important}')
+  document.adoptedStyleSheets = [...document.adoptedStyleSheets, f]
+})()`
 const SENHA = 'cavalo-bateria-agrafo-correto-android'
 const SEGREDO = 'SENHA-FICTICIA-ANDROID-4417'
 const TITULO = 'Correio Exemplo Android'
@@ -250,6 +262,10 @@ async function ligar() {
   // a app segue «movimento reduzido» (como pede o sistema): sem deslizes nem esmaecimentos, o que
   // se mede é onde as coisas ficam — no emulador sem GPU cada fotograma pode levar segundos
   await cdp.enviar('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] }).catch(() => {})
+  if (SEM_GPU) {
+    await cdp.enviar('Page.addScriptToEvaluateOnNewDocument', { source: `document.addEventListener('DOMContentLoaded', () => ${SEM_EFEITOS})` }).catch(() => {})
+    await cdp.enviar('Runtime.evaluate', { expression: SEM_EFEITOS }).catch(() => {})
+  }
   if (SIMULADOR) {
     await cdp.enviar('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 1, mobile: true })
     await cdp.enviar('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
