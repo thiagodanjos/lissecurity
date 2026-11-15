@@ -149,7 +149,8 @@ class Cdp {
     this.ws.send(JSON.stringify({ id, method, params }))
     return new Promise((ok, falha) => {
       this.pendentes.set(id, { ok, falha })
-      setTimeout(() => this.pendentes.has(id) && (this.pendentes.delete(id), falha(new Error(`${method} sem resposta`))), 30_000)
+      // sem GPU, no emulador do CI, um fotograma pode levar mais de 15 s: margem larga
+      setTimeout(() => this.pendentes.has(id) && (this.pendentes.delete(id), falha(new Error(`${method} sem resposta`))), 90_000)
     })
   }
   fechar() {
@@ -392,7 +393,7 @@ async function passo(nome, f, { soAndroid = false, salvo = '' } = {}) {
     await captura(`falha-${++falhas}`)
     if (falhas <= 2) await diagnostico(nome)
     if (!SIMULADOR && !dispositivoVivo()) parar = 'o emulador deixou de responder'
-    else if (/sem resposta/.test(msg) && ++semResposta >= 2) parar = 'a app deixou de responder (ver logcat.txt)'
+    else if (/sem resposta/.test(msg) && ++semResposta >= 3) parar = 'a app deixou de responder (ver logcat.txt)'
   }
 }
 

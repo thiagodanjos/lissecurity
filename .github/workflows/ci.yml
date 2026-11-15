@@ -214,6 +214,9 @@ jobs:
           api-level: 34
           arch: x86_64
           target: google_apis
+          # sem GPU todo o desenho cai no processador: os 4 núcleos da máquina e mais memória
+          cores: 4
+          ram-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -camera-front none
           script: |
