@@ -64,6 +64,21 @@ async function fecharTeclado() {
   }
 }
 
+/**
+ * A Activity já recebeu o onStop (é aí que a app bloqueia ao sair)? Só depois de o ecrã inicial
+ * do Android se desenhar por cima — no emulador sem GPU pode levar bem mais do que num telemóvel.
+ */
+function atividadeParada() {
+  try {
+    const t = shell('dumpsys', 'activity', '-p', PACOTE, 'activities')
+    const i = t.indexOf(`${PACOTE}/.MainActivity`)
+    if (i < 0) return true
+    return /state=STOPPED|stopped=true/.test(t.slice(i, i + 4000))
+  } catch {
+    return false
+  }
+}
+
 /** O emulador ainda responde ao adb? */
 function dispositivoVivo() {
   try {
@@ -510,6 +525,7 @@ try {
       await esperarTexto('Bem-vindo', 20_000)
       tecla(VOLTAR)
       await esperarAte(() => !emPrimeiroPlano(), 20_000, 'a app não saiu da frente no ecrã inicial')
+      await esperarAte(atividadeParada, 90_000, 'o Android não chegou a parar a app (onStop)')
     },
     { soAndroid: true },
   )
