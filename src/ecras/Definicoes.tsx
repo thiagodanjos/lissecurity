@@ -4,6 +4,7 @@ import {
   Cloud,
   Database,
   FileSpreadsheet,
+  Fingerprint,
   FolderOpen,
   Gauge,
   Info,
@@ -13,13 +14,14 @@ import {
   Monitor,
   Palette,
   ShieldCheck,
+  Smartphone,
   Upload,
   UserRound,
   WandSparkles,
 } from 'lucide-react'
 import { api, descartado, ErroIpc, ignorarDescartado } from '@/lib/ipc'
 import { useSessao } from '@/lib/sessao'
-import type { Definicoes as Defs, DefinicoesVista, EstadoCopias, PreferenciasGerador } from '@/lib/tipos'
+import type { Definicoes as Defs, DefinicoesVista, EstadoBiometria, EstadoCopias, PreferenciasGerador } from '@/lib/tipos'
 import { mudarConfig } from '@/lib/acoes'
 import { haQuanto } from '@/lib/formatos'
 import { cn } from '@/lib/utils'
@@ -28,6 +30,7 @@ import { MostrarChaveRecuperacao } from '@/componentes/chave-recuperacao'
 import { useAjuda } from '@/componentes/ajuda'
 import { Aviso, Botao, Campo, Cartao, CampoSenha, Interruptor, Modal, Segmentado, Selecao, Spinner } from '@/componentes/ui'
 import { AlterarSenha } from './Seguranca'
+import { aparelho, useAndroid } from '@/lib/movel'
 
 const SECOES = [
   { id: 'aparencia', titulo: 'Aparência', icone: <Palette /> },
@@ -47,6 +50,9 @@ export function Definicoes() {
   const [modal, setModal] = useState<'senha' | 'reforcar' | null>(null)
   const [ativa, setAtiva] = useState<string>('aparencia')
   const corpo = useRef<HTMLDivElement>(null)
+  const android = useAndroid()
+  const [bio, setBio] = useState<EstadoBiometria | null>(null)
+  const [pedirSenhaBio, setPedirSenhaBio] = useState(false)
 
   useEffect(() => {
     api
@@ -62,7 +68,12 @@ export function Definicoes() {
       .then(setCopias)
       .catch(ignorarDescartado)
       .catch(() => {})
-  }, [versao])
+    if (android)
+      api
+        .estadoBiometria()
+        .then(setBio)
+        .catch(() => {})
+  }, [versao, android])
 
   // destaca na navegação a secção que está à vista
   useEffect(() => {
@@ -115,6 +126,16 @@ export function Definicoes() {
     }
   }
 
+  const desligarBiometria = async () => {
+    try {
+      await api.desativarBiometria()
+      setBio(await api.estadoBiometria())
+      avisar('sucesso', 'Desbloqueio com biometria desligado.')
+    } catch (e) {
+      if (!descartado(e)) avisar('erro', erroParaTexto(e))
+    }
+  }
+
   const irA = (id: string) => {
     setAtiva(id)
     corpo.current?.querySelector(`#def-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -146,7 +167,7 @@ export function Definicoes() {
       </nav>
 
       <div ref={corpo} className="min-w-0 flex-1 overflow-y-auto scroll-smooth">
-        <div className="mx-auto max-w-3xl space-y-10 px-8 py-8">
+        <div className="mx-auto max-w-3xl space-y-8 px-4 pb-8 pt-5 sm:space-y-10 sm:px-8 sm:py-8 espaco-fab">
           <h1 className="text-3xl font-extrabold tracking-tight lg:hidden">Definições</h1>
 
           <Grupo id="aparencia" icone={<Palette />} titulo="Aparência">
@@ -196,7 +217,7 @@ export function Definicoes() {
             <Linha rotulo="Densidade">
               <Segmentado rotulo="Densidade" idAnimacao="densidade" valor={config.densidade} aoMudar={(densidade) => void mudarConfig({ densidade })} opcoes={[{ valor: 'confortavel', texto: 'Confortável' }, { valor: 'compacta', texto: 'Compacta' }]} className="w-64" />
             </Linha>
-            <Linha rotulo="Animações" descricao="«Sistema» segue a preferência de movimento reduzido do Windows.">
+            <Linha rotulo="Animações" descricao={android ? '«Sistema» segue a opção «Remover animações» do Android.' : '«Sistema» segue a preferência de movimento reduzido do Windows.'}>
               <Segmentado
                 rotulo="Animações"
                 idAnimacao="animacoes"
@@ -218,9 +239,9 @@ export function Definicoes() {
                 <option value="gastos">Gastos</option>
               </Selecao>
             </Linha>
-            <Interruptor rotulo="Mostrar contagens na barra lateral" ligado={config.contadoresLateral} aoMudar={(v) => void mudarConfig({ contadoresLateral: v })} />
+            {!android && <Interruptor rotulo="Mostrar contagens na barra lateral" ligado={config.contadoresLateral} aoMudar={(v) => void mudarConfig({ contadoresLateral: v })} />}
             <form
-              className="flex items-end gap-3 py-3"
+              className="flex flex-wrap items-end gap-3 py-3"
               onSubmit={(e) => {
                 e.preventDefault()
                 void guardarCofre({}, nome.trim()).then(() => avisar('sucesso', 'Nome guardado.'))
@@ -234,6 +255,21 @@ export function Definicoes() {
           </Grupo>
 
           <Grupo id="seguranca" icone={<LockKeyhole />} titulo="Segurança">
+            {android && bio?.suportada && (
+              <Interruptor
+                rotulo="Desbloquear com a impressão digital"
+                descricao={
+                  bio.ativa
+                    ? 'A chave do cofre fica no chip de segurança do telemóvel e só sai com a tua impressão digital ou o teu rosto. A senha mestra continua a abrir o cofre.'
+                    : bio.disponivel
+                      ? 'Abre o cofre com a impressão digital ou o rosto. A senha mestra continua a ser precisa de vez em quando e para mudanças importantes.'
+                      : 'Para usar isto, regista uma impressão digital ou o rosto nas definições do Android.'
+                }
+                ligado={bio.ativa}
+                disabled={!bio.ativa && !bio.disponivel}
+                aoMudar={(v) => (v ? setPedirSenhaBio(true) : void desligarBiometria())}
+              />
+            )}
             <Linha rotulo="Bloquear depois de" descricao="Minutos sem usar a aplicação.">
               <Selecao aria-label="Minutos até bloquear" value={d.cofre.bloqueioMinutos} onChange={(e) => void guardarCofre({ bloqueioMinutos: Number(e.target.value) })} className="w-40">
                 {[1, 2, 5, 10, 15, 30, 60, 120, 240].map((m) => (
@@ -243,9 +279,20 @@ export function Definicoes() {
                 ))}
               </Selecao>
             </Linha>
-            <Interruptor rotulo="Bloquear ao minimizar" descricao="O conteúdo sai do ecrã antes de a janela minimizar. O que copiaste continua disponível para colar." ligado={d.cofre.bloquearAoMinimizar} aoMudar={(v) => void guardarCofre({ bloquearAoMinimizar: v })} />
-            <Interruptor rotulo="Bloquear ao suspender o computador" ligado={d.cofre.bloquearAoSuspender} aoMudar={(v) => void guardarCofre({ bloquearAoSuspender: v })} />
-            <Interruptor rotulo="Bloquear com a sessão do Windows" descricao="Win+L, trocar de utilizador ou terminar sessão." ligado={d.cofre.bloquearComSistema} aoMudar={(v) => void guardarCofre({ bloquearComSistema: v })} />
+            {android ? (
+              <Interruptor
+                rotulo="Bloquear ao sair da app"
+                descricao="Ao mudar de app, ir para o ecrã inicial ou apagar o ecrã, o cofre bloqueia logo. O que copiaste continua disponível para colar."
+                ligado={d.cofre.bloquearAoMinimizar}
+                aoMudar={(v) => void guardarCofre({ bloquearAoMinimizar: v })}
+              />
+            ) : (
+              <>
+                <Interruptor rotulo="Bloquear ao minimizar" descricao="O conteúdo sai do ecrã antes de a janela minimizar. O que copiaste continua disponível para colar." ligado={d.cofre.bloquearAoMinimizar} aoMudar={(v) => void guardarCofre({ bloquearAoMinimizar: v })} />
+                <Interruptor rotulo="Bloquear ao suspender o computador" ligado={d.cofre.bloquearAoSuspender} aoMudar={(v) => void guardarCofre({ bloquearAoSuspender: v })} />
+                <Interruptor rotulo="Bloquear com a sessão do Windows" descricao="Win+L, trocar de utilizador ou terminar sessão." ligado={d.cofre.bloquearComSistema} aoMudar={(v) => void guardarCofre({ bloquearComSistema: v })} />
+              </>
+            )}
             <Interruptor
               rotulo="Pedir a senha mestra para dados financeiros"
               descricao="Antes de revelar ou copiar números de cartões, IBAN, contas e chaves Pix. A confirmação vale 5 minutos."
@@ -272,11 +319,24 @@ export function Definicoes() {
             </Linha>
             <Interruptor
               rotulo="Limpar também ao bloquear"
-              descricao="Desligado por padrão: copiar e minimizar para colar noutro sítio tem de funcionar. Ao sair da app limpa-se sempre."
+              descricao={
+                android
+                  ? 'Desligado por padrão: copiar e mudar de app para colar tem de funcionar. O tempo acima conta sempre, mesmo com a app fechada.'
+                  : 'Desligado por padrão: copiar e minimizar para colar noutro sítio tem de funcionar. Ao sair da app limpa-se sempre.'
+              }
               ligado={d.cofre.limparAoBloquear}
               aoMudar={(v) => void guardarCofre({ limparAoBloquear: v })}
             />
-            <Interruptor rotulo="Proteger contra capturas de ecrã" descricao="Pede ao Windows para excluir esta janela de capturas e partilhas de ecrã." ligado={config.protegerCaptura} aoMudar={(v) => void mudarConfig({ protegerCaptura: v })} />
+            <Interruptor
+              rotulo="Proteger contra capturas de ecrã"
+              descricao={
+                android
+                  ? 'Bloqueia capturas e gravações de ecrã e esconde o conteúdo na lista de apps recentes.'
+                  : 'Pede ao Windows para excluir esta janela de capturas e partilhas de ecrã.'
+              }
+              ligado={config.protegerCaptura}
+              aoMudar={(v) => void mudarConfig({ protegerCaptura: v })}
+            />
             <Linha rotulo="Proteção da senha mestra" descricao={`Argon2id · ${d.kdfMemoriaMib} MiB · ${d.kdfIteracoes} iterações · XChaCha20-Poly1305`}>
               <Botao variante="contorno" tamanho="sm" icone={<Gauge />} onClick={() => setModal('reforcar')}>
                 Reforçar
@@ -326,8 +386,10 @@ export function Definicoes() {
               rotulo="Cópias automáticas"
               descricao={
                 copias?.config.ativo
-                  ? `Ligadas · ${copias.config.pasta} · última ${copias.ultimaAutomatica ? haQuanto(copias.ultimaAutomatica) : '—'}`
-                  : 'Desligadas. Liga-as para guardar uma cópia cifrada no Google Drive sempre que o cofre muda.'
+                  ? `Ligadas · ${copias.destino ?? copias.config.pasta} · última ${copias.ultimaAutomatica ? haQuanto(copias.ultimaAutomatica) : '—'}`
+                  : android
+                    ? 'Desligadas. Liga-as para guardar uma cópia cifrada numa pasta à tua escolha (por exemplo, no Google Drive) sempre que o cofre muda.'
+                    : 'Desligadas. Liga-as para guardar uma cópia cifrada no Google Drive sempre que o cofre muda.'
               }
             >
               <Botao variante={copias?.config.ativo ? 'escuro' : 'primario'} tamanho="sm" icone={<Cloud />} onClick={() => useSessao.getState().irPara('copias')}>
@@ -347,11 +409,18 @@ export function Definicoes() {
           </Grupo>
 
           <Grupo id="dados" icone={<Database />} titulo="Dados">
-            <Linha rotulo="Local do cofre" descricao={<span className="mono break-all text-[11.5px]">{d.caminhoCofre}</span>}>
-              <Botao variante="escuro" tamanho="sm" icone={<FolderOpen />} onClick={() => api.abrirPastaCofre().catch((e) => void (descartado(e) || avisar('erro', erroParaTexto(e))))}>
-                Abrir pasta
-              </Botao>
-            </Linha>
+            {android ? (
+              <Linha
+                rotulo="Local do cofre"
+                descricao="Na memória privada da app: só o LisSecurity lhe chega e fica fora das cópias do Android. Para o levar para outro aparelho, usa uma cópia de segurança."
+              />
+            ) : (
+              <Linha rotulo="Local do cofre" descricao={<span className="mono break-all text-[11.5px]">{d.caminhoCofre}</span>}>
+                <Botao variante="escuro" tamanho="sm" icone={<FolderOpen />} onClick={() => api.abrirPastaCofre().catch((e) => void (descartado(e) || avisar('erro', erroParaTexto(e))))}>
+                  Abrir pasta
+                </Botao>
+              </Linha>
+            )}
             <Linha rotulo="Importar senhas" descricao="De Chrome, Edge, Brave, Firefox, Bitwarden, LastPass, 1Password ou KeePass (CSV).">
               <Botao variante="escuro" tamanho="sm" icone={<Upload />} onClick={() => useSessao.getState().abrirImportar('senhas')}>
                 Importar
@@ -383,17 +452,28 @@ export function Definicoes() {
             </Linha>
           </Grupo>
 
-          <Grupo id="aplicacao" icone={<Monitor />} titulo="Aplicação">
-            <Linha rotulo="Ao fechar a janela" descricao="Em ambos os casos o cofre fica bloqueado.">
-              <Segmentado rotulo="Ao fechar" idAnimacao="aoFechar" valor={config.aoFechar} aoMudar={(aoFechar) => void mudarConfig({ aoFechar })} opcoes={[{ valor: 'sair', texto: 'Sair' }, { valor: 'minimizar', texto: 'Minimizar' }]} className="w-56" />
-            </Linha>
-            <Interruptor rotulo="Iniciar com o Windows" descricao="Arranca sempre bloqueado." ligado={config.iniciarComSistema} aoMudar={(v) => void mudarConfig({ iniciarComSistema: v })} />
-            <Linha rotulo="Atalhos de teclado">
-              <Botao variante="escuro" tamanho="sm" icone={<Keyboard />} onClick={() => useAjuda.getState().abrir('atalhos')}>
-                Ver atalhos
-              </Botao>
-            </Linha>
-            <Linha rotulo="Versão" descricao="Sem atualizações automáticas: as versões novas instalam-se à mão a partir das Releases do GitHub (com o SHA-256 para confirmar).">
+          <Grupo id="aplicacao" icone={android ? <Smartphone /> : <Monitor />} titulo="Aplicação">
+            {!android && (
+              <>
+                <Linha rotulo="Ao fechar a janela" descricao="Em ambos os casos o cofre fica bloqueado.">
+                  <Segmentado rotulo="Ao fechar" idAnimacao="aoFechar" valor={config.aoFechar} aoMudar={(aoFechar) => void mudarConfig({ aoFechar })} opcoes={[{ valor: 'sair', texto: 'Sair' }, { valor: 'minimizar', texto: 'Minimizar' }]} className="w-56" />
+                </Linha>
+                <Interruptor rotulo="Iniciar com o Windows" descricao="Arranca sempre bloqueado." ligado={config.iniciarComSistema} aoMudar={(v) => void mudarConfig({ iniciarComSistema: v })} />
+                <Linha rotulo="Atalhos de teclado">
+                  <Botao variante="escuro" tamanho="sm" icone={<Keyboard />} onClick={() => useAjuda.getState().abrir('atalhos')}>
+                    Ver atalhos
+                  </Botao>
+                </Linha>
+              </>
+            )}
+            <Linha
+              rotulo="Versão"
+              descricao={
+                android
+                  ? 'Sem atualizações automáticas nem acesso à internet: as versões novas instalam-se à mão a partir das Releases do GitHub (com o SHA-256 para confirmar).'
+                  : 'Sem atualizações automáticas: as versões novas instalam-se à mão a partir das Releases do GitHub (com o SHA-256 para confirmar).'
+              }
+            >
               <span className="flex items-center gap-2 text-[13px] font-semibold text-text">
                 <Archive className="size-4 text-faint" aria-hidden="true" />
                 {useSessao.getState().app?.versao}
@@ -409,6 +489,16 @@ export function Definicoes() {
       </div>
 
       <AlterarSenha aberto={modal === 'senha'} aoFechar={() => setModal(null)} />
+      {android && (
+        <AtivarBiometria
+          aberto={pedirSenhaBio}
+          aoFechar={() => setPedirSenhaBio(false)}
+          aoAtivar={(b) => {
+            setBio(b)
+            setPedirSenhaBio(false)
+          }}
+        />
+      )}
       <Reforcar aberto={modal === 'reforcar'} aoFechar={() => setModal(null)} atual={`${d.kdfMemoriaMib} MiB × ${d.kdfIteracoes}`} />
     </div>
   )
@@ -427,15 +517,76 @@ function Grupo({ id, icone, titulo, children }: { id: string; icone: ReactNode; 
   )
 }
 
-function Linha({ rotulo, descricao, children }: { rotulo: string; descricao?: ReactNode; children: ReactNode }) {
+/**
+ * Uma definição: rótulo e descrição à esquerda, o controlo à direita. Em ecrãs estreitos (o
+ * telemóvel) o controlo desce para baixo do texto e os controlos largos ocupam a linha toda,
+ * em vez de espremerem o rótulo.
+ */
+function Linha({ rotulo, descricao, children }: { rotulo: string; descricao?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3.5">
-      <div className="min-w-0 flex-1">
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2.5 py-3.5">
+      <div className="min-w-0 flex-1 max-sm:basis-full">
         <p className="text-[13.5px] font-semibold text-text">{rotulo}</p>
         {descricao && <div className="mt-0.5 text-[12px] leading-relaxed text-muted">{descricao}</div>}
       </div>
-      {children}
+      {children && <div className="shrink-0 max-sm:basis-full max-sm:[&>div]:w-full">{children}</div>}
     </div>
+  )
+}
+
+/** Ligar o desbloqueio com biometria: confirma a senha mestra e depois pede a impressão digital. */
+function AtivarBiometria({ aberto, aoFechar, aoAtivar }: { aberto: boolean; aoFechar: () => void; aoAtivar: (b: EstadoBiometria) => void }) {
+  const [senha, setSenha] = useState('')
+  const [erro, setErro] = useState<string | null>(null)
+  const [aTrabalhar, setATrabalhar] = useState(false)
+  const fechar = () => {
+    setSenha('')
+    setErro(null)
+    aoFechar()
+  }
+  const ativar = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!senha || aTrabalhar) return
+    setATrabalhar(true)
+    setErro(null)
+    try {
+      await api.ativarBiometria(senha)
+      setSenha('')
+      avisar('sucesso', 'Desbloqueio com biometria ligado.')
+      aoAtivar(await api.estadoBiometria())
+    } catch (err) {
+      if (descartado(err)) return
+      const codigo = err instanceof ErroIpc ? err.codigo : ''
+      if (codigo === 'cancelado') setErro('Cancelaste a confirmação. Toca em «Ligar» para tentar outra vez.')
+      else setErro(codigo === 'credencial' ? 'A senha mestra não está correta.' : erroParaTexto(err))
+    } finally {
+      setATrabalhar(false)
+    }
+  }
+  return (
+    <Modal aberto={aberto} aoFechar={fechar} titulo="Desbloquear com a impressão digital" largura="max-w-md" fecharComFundo={false}>
+      <form onSubmit={ativar} className="space-y-4">
+        <div className="flex items-start gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+            <Fingerprint className="size-5" aria-hidden="true" />
+          </span>
+          <p className="text-[13px] leading-relaxed text-muted">
+            A chave do cofre é guardada cifrada por uma chave do chip de segurança do telemóvel, que só a liberta depois da tua impressão digital ou do teu
+            rosto. Se registares uma biometria nova no Android, isto desliga-se sozinho e volta a ser precisa a senha mestra.
+          </p>
+        </div>
+        <CampoSenha rotulo="Senha mestra" value={senha} onChange={(e) => setSenha(e.target.value)} autoFocus disabled={aTrabalhar} />
+        {erro && <Aviso tom="vermelho">{erro}</Aviso>}
+        <div className="flex justify-end gap-2">
+          <Botao variante="fantasma" onClick={fechar}>
+            Cancelar
+          </Botao>
+          <Botao type="submit" carregando={aTrabalhar} disabled={!senha} icone={<Fingerprint />}>
+            Ligar
+          </Botao>
+        </div>
+      </form>
+    </Modal>
   )
 }
 
@@ -511,7 +662,7 @@ function Reforcar({ aberto, aoFechar, atual }: { aberto: boolean; aoFechar: () =
               Aplicar
             </Botao>
           </div>
-          {aTrabalhar && <p className="text-center text-[11.5px] text-faint">A medir este computador e a cifrar de novo…</p>}
+          {aTrabalhar && <p className="text-center text-[11.5px] text-faint">A medir este {aparelho()} e a cifrar de novo…</p>}
         </form>
       )}
     </Modal>

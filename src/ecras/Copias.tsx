@@ -13,25 +13,31 @@ import {
   HardDriveDownload,
   Info,
   RefreshCw,
+  Share2,
   ShieldCheck,
 } from 'lucide-react'
 import { api, descartado, ErroIpc, ignorarDescartado } from '@/lib/ipc'
 import { useSessao } from '@/lib/sessao'
-import type { CopiaCriada, EstadoCopias, InfoCopia, PastaNuvem } from '@/lib/tipos'
+import type { CopiaCriada, Escolhido, EstadoCopias, InfoCopia, PastaNuvem } from '@/lib/tipos'
 import { dataHora, haQuanto, plural } from '@/lib/formatos'
 import { cn } from '@/lib/utils'
 import { avisar, erroParaTexto } from '@/componentes/avisos'
 import { Aviso, Botao, Cartao, CampoSenha, confirmar, Etiqueta, Modal, Selecao, Spinner, TituloSecao } from '@/componentes/ui'
+import { useAndroid } from '@/lib/movel'
+
+type Pedido = { modo: 'testar' | 'restaurar'; ficheiro?: Escolhido }
 
 const tamanho = (b: number) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`)
 
 /** Cópias de segurança cifradas: automáticas (Google Drive), manuais, testar e restaurar. */
 export function Copias() {
   const versao = useSessao((s) => s.versao)
+  const android = useAndroid()
   const [estado, setEstado] = useState<EstadoCopias | null>(null)
   const [criada, setCriada] = useState<CopiaCriada | null>(null)
   const [aCriar, setACriar] = useState(false)
-  const [modal, setModal] = useState<{ modo: 'testar' | 'restaurar'; caminho?: string } | null>(null)
+  const [aPartilhar, setAPartilhar] = useState(false)
+  const [modal, setModal] = useState<Pedido | null>(null)
 
   const recarregar = useCallback(() => {
     api
@@ -64,6 +70,19 @@ export function Copias() {
     }
   }
 
+  /** Android: a folha de partilha (Drive, e-mail, Signal…) com uma cópia cifrada acabada de fazer. */
+  const partilhar = async () => {
+    setAPartilhar(true)
+    try {
+      await api.partilharCopia()
+    } catch (e) {
+      if (descartado(e)) return
+      avisar('erro', erroParaTexto(e))
+    } finally {
+      setAPartilhar(false)
+    }
+  }
+
   if (!estado)
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -75,7 +94,7 @@ export function Copias() {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-5xl space-y-10 px-8 py-8">
+      <div className="mx-auto max-w-5xl space-y-8 px-4 pb-8 pt-5 sm:space-y-10 sm:px-8 sm:py-8 espaco-fab">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight">
             Cópias de <span className="text-brand-gradient">segurança</span>
@@ -86,16 +105,31 @@ export function Copias() {
           </p>
         </div>
 
-        <Automaticas estado={estado} aoMudar={setEstado} aoAbrir={(caminho, modo) => setModal({ modo, caminho })} />
+        <Automaticas estado={estado} aoMudar={setEstado} aoAbrir={(ficheiro, modo) => setModal({ modo, ficheiro })} />
 
         <section>
           <TituloSecao>Outras ações</TituloSecao>
-          <div className="grid gap-4 md:grid-cols-3">
-            <Acao icone={<HardDriveDownload />} titulo="Cópia manual" texto="Para uma pen ou outro disco. O ficheiro sai cifrado e é verificado depois de gravado. As manuais nunca são apagadas automaticamente.">
-              <Botao largo variante="escuro" onClick={criarManual} carregando={aCriar} icone={<HardDriveDownload />}>
-                Criar cópia manual
-              </Botao>
-            </Acao>
+          <div className={cn('grid gap-4', android ? 'sm:grid-cols-2' : 'md:grid-cols-3')}>
+            {android ? (
+              <>
+                <Acao icone={<HardDriveDownload />} titulo="Guardar uma cópia" texto="Escolhe onde: no Google Drive, nas Transferências ou numa pen USB. O ficheiro sai cifrado e é relido para confirmar que ficou bem gravado.">
+                  <Botao largo variante="escuro" onClick={criarManual} carregando={aCriar} icone={<HardDriveDownload />}>
+                    Guardar uma cópia…
+                  </Botao>
+                </Acao>
+                <Acao icone={<Share2 />} titulo="Enviar uma cópia" texto="Abre a partilha do Android para mandar a cópia cifrada a ti próprio (e-mail, Drive, uma conversa). Sem a senha mestra ninguém a abre.">
+                  <Botao largo variante="escuro" onClick={partilhar} carregando={aPartilhar} icone={<Share2 />}>
+                    Enviar uma cópia…
+                  </Botao>
+                </Acao>
+              </>
+            ) : (
+              <Acao icone={<HardDriveDownload />} titulo="Cópia manual" texto="Para uma pen ou outro disco. O ficheiro sai cifrado e é verificado depois de gravado. As manuais nunca são apagadas automaticamente.">
+                <Botao largo variante="escuro" onClick={criarManual} carregando={aCriar} icone={<HardDriveDownload />}>
+                  Criar cópia manual
+                </Botao>
+              </Acao>
+            )}
             <Acao icone={<FlaskConical />} titulo="Testar uma cópia" texto="Abre uma cópia com a senha da altura e conta os registos — sem mexer no cofre atual.">
               <Botao largo variante="escuro" onClick={() => setModal({ modo: 'testar' })}>
                 Escolher e testar
@@ -111,7 +145,8 @@ export function Copias() {
             <Aviso tom="verde" icone={<CheckCircle2 />} className="mt-4">
               <p className="font-semibold text-text">{criada.nome}</p>
               <p className="mt-0.5 break-all">
-                {criada.caminho} · {tamanho(criada.bytes)} · relida e verificada
+                {android ? '' : `${criada.caminho} · `}
+                {tamanho(criada.bytes)} · relida e verificada
               </p>
             </Aviso>
           )}
@@ -126,7 +161,15 @@ export function Copias() {
             </p>
             <p className="flex gap-2.5">
               <ShieldCheck className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden="true" />
-              Se perderes o computador: instala o LisSecurity noutro PC, liga o Google Drive e escolhe <strong className="text-text">Restaurar uma cópia de segurança</strong> no primeiro ecrã. Precisas da senha mestra (ou da chave de recuperação) que estava em uso quando a cópia foi feita.
+              {android ? (
+                <span>
+                  Se perderes o telemóvel: instala o LisSecurity noutro telemóvel ou num PC com Windows e escolhe <strong className="text-text">Restaurar uma cópia de segurança</strong> no primeiro ecrã. O ficheiro é o mesmo nos dois. Precisas da senha mestra (ou da chave de recuperação) que estava em uso quando a cópia foi feita.
+                </span>
+              ) : (
+                <span>
+                  Se perderes o computador: instala o LisSecurity noutro PC (ou no telemóvel Android), liga o Google Drive e escolhe <strong className="text-text">Restaurar uma cópia de segurança</strong> no primeiro ecrã. Precisas da senha mestra (ou da chave de recuperação) que estava em uso quando a cópia foi feita.
+                </span>
+              )}
             </p>
             <p className="flex gap-2.5">
               <Info className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden="true" />
@@ -156,7 +199,8 @@ function Acao({ icone, titulo, texto, children }: { icone: React.ReactNode; titu
 }
 
 /** Cartão principal: cópias automáticas para a pasta do Google Drive (ou outra). */
-function Automaticas({ estado, aoMudar, aoAbrir }: { estado: EstadoCopias; aoMudar: (e: EstadoCopias) => void; aoAbrir: (caminho: string, modo: 'testar' | 'restaurar') => void }) {
+function Automaticas({ estado, aoMudar, aoAbrir }: { estado: EstadoCopias; aoMudar: (e: EstadoCopias) => void; aoAbrir: (ficheiro: Escolhido, modo: 'testar' | 'restaurar') => void }) {
+  const android = useAndroid()
   const [nuvens, setNuvens] = useState<PastaNuvem[] | null>(null)
   const [pasta, setPasta] = useState(estado.config.pasta)
   const [manter, setManter] = useState(estado.config.manter)
@@ -197,7 +241,8 @@ function Automaticas({ estado, aoMudar, aoAbrir }: { estado: EstadoCopias; aoMud
       const p = await api.escolherPasta('Escolhe a pasta das cópias (por exemplo, a do Google Drive)')
       if (p) {
         setPasta(p)
-        if (estado.config.ativo) await aplicar(true, p)
+        // no Android, escolher a pasta é o passo que liga as cópias (o nome só se sabe depois)
+        if (estado.config.ativo || android) await aplicar(true, p)
       }
     } catch (e) {
       if (descartado(e)) return
@@ -224,25 +269,29 @@ function Automaticas({ estado, aoMudar, aoAbrir }: { estado: EstadoCopias; aoMud
 
   return (
     <section>
-      <TituloSecao>Cópias automáticas na nuvem</TituloSecao>
+      <TituloSecao>{android ? 'Cópias automáticas' : 'Cópias automáticas na nuvem'}</TituloSecao>
       <Cartao className="overflow-hidden">
         <div className={cn('flex flex-wrap items-center gap-4 border-b border-border/70 p-5', ligado && 'bg-[linear-gradient(100deg,#10241a_0%,transparent_70%)]')}>
           <span className={cn('flex size-12 shrink-0 items-center justify-center rounded-2xl', ligado ? 'bg-accent-soft text-accent' : 'bg-raised text-faint')}>
             {ligado ? <Cloud className="size-6" /> : <CloudOff className="size-6" />}
           </span>
-          <div className="min-w-0 flex-1">
-            <h3 className="flex items-center gap-2 text-[15px] font-bold">
+          <div className="min-w-0 flex-1 max-sm:basis-[calc(100%-4rem)]">
+            <h3 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] font-bold">
               {ligado ? 'Ligadas' : 'Desligadas'}
               {ligado && estado.ultimaAutomatica && <Etiqueta tom="verde">Última {haQuanto(estado.ultimaAutomatica)}</Etiqueta>}
             </h3>
             <p className="mt-0.5 text-[12.5px] text-muted">
-              {ligado
-                ? 'Depois de cada alteração (com 15 s de folga), é gravada uma cópia cifrada na pasta abaixo. O Google Drive para computador envia-a para a nuvem.'
-                : 'Liga para guardar uma cópia cifrada sempre que o cofre muda — numa pasta do Google Drive, fica também na nuvem.'}
+              {android
+                ? ligado
+                  ? 'Depois de cada alteração (com 15 s de folga), é gravada uma cópia cifrada na pasta abaixo.'
+                  : 'Liga para guardar uma cópia cifrada numa pasta do telemóvel sempre que o cofre muda.'
+                : ligado
+                  ? 'Depois de cada alteração (com 15 s de folga), é gravada uma cópia cifrada na pasta abaixo. O Google Drive para computador envia-a para a nuvem.'
+                  : 'Liga para guardar uma cópia cifrada sempre que o cofre muda — numa pasta do Google Drive, fica também na nuvem.'}
             </p>
           </div>
           {ligado && (
-            <Botao variante="escuro" tamanho="sm" icone={<RefreshCw />} onClick={copiarAgora} carregando={aCopiar}>
+            <Botao variante="escuro" tamanho="sm" icone={<RefreshCw />} onClick={copiarAgora} carregando={aCopiar} className="max-sm:w-full">
               Copiar agora
             </Botao>
           )}
@@ -254,53 +303,62 @@ function Automaticas({ estado, aoMudar, aoAbrir }: { estado: EstadoCopias; aoMud
               A última cópia automática falhou: {estado.ultimoErro}
             </Aviso>
           )}
+          {estado.noutroAparelho && (
+            <Aviso tom="ambar" icone={<Info />}>
+              As cópias automáticas foram configuradas noutro aparelho, numa pasta que não existe aqui. Escolhe uma pasta {android ? 'neste telemóvel' : 'neste computador'} para as voltares a ligar — as cópias antigas continuam onde estavam.
+            </Aviso>
+          )}
 
-          <div>
-            <p className="mb-2 text-[12px] font-semibold text-muted">Pasta</p>
-            {nuvens === null ? (
-              <Spinner />
-            ) : nuvens.length > 0 ? (
-              <div className="mb-3 grid gap-2 sm:grid-cols-2">
-                {nuvens.map((n) => (
-                  <button
-                    key={n.caminho}
-                    type="button"
-                    aria-pressed={pasta === n.caminho}
-                    onClick={() => {
-                      setPasta(n.caminho)
-                      if (ligado) void aplicar(true, n.caminho)
-                    }}
-                    className={cn(
-                      'flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-left transition-colors',
-                      pasta === n.caminho ? 'border-accent/45 bg-accent-soft/60' : 'border-border bg-raised hover:border-border-strong',
-                    )}
-                  >
-                    <Cloud className={cn('size-5 shrink-0', pasta === n.caminho ? 'text-accent' : 'text-faint')} aria-hidden="true" />
-                    <span className="min-w-0">
-                      <span className="block text-[13px] font-semibold text-text">{n.servico}</span>
-                      <span className="mono block truncate text-[11px] text-faint" title={n.caminho}>
-                        {n.caminho}
+          {android ? (
+            <PastaAndroid estado={estado} aEscolher={aGuardar} aoEscolher={escolherPasta} />
+          ) : (
+            <div>
+              <p className="mb-2 text-[12px] font-semibold text-muted">Pasta</p>
+              {nuvens === null ? (
+                <Spinner />
+              ) : nuvens.length > 0 ? (
+                <div className="mb-3 grid gap-2 sm:grid-cols-2">
+                  {nuvens.map((n) => (
+                    <button
+                      key={n.caminho}
+                      type="button"
+                      aria-pressed={pasta === n.caminho}
+                      onClick={() => {
+                        setPasta(n.caminho)
+                        if (ligado) void aplicar(true, n.caminho)
+                      }}
+                      className={cn(
+                        'flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-left transition-colors',
+                        pasta === n.caminho ? 'border-accent/45 bg-accent-soft/60' : 'border-border bg-raised hover:border-border-strong',
+                      )}
+                    >
+                      <Cloud className={cn('size-5 shrink-0', pasta === n.caminho ? 'text-accent' : 'text-faint')} aria-hidden="true" />
+                      <span className="min-w-0">
+                        <span className="block text-[13px] font-semibold text-text">{n.servico}</span>
+                        <span className="mono block truncate text-[11px] text-faint" title={n.caminho}>
+                          {n.caminho}
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <Aviso tom="neutro" icone={<Info />} className="mb-3">
-                Não encontrei a pasta do Google Drive. Instala o <strong className="text-text">Google Drive para computador</strong> (drive.google.com/download), entra com a tua conta e volta aqui — ou escolhe outra pasta.
-              </Aviso>
-            )}
-            <div className="flex flex-wrap items-center gap-2">
-              <Botao variante="contorno" tamanho="sm" icone={<FolderOpen />} onClick={escolherPasta}>
-                Escolher outra pasta…
-              </Botao>
-              {pasta && (
-                <span className="mono min-w-0 flex-1 truncate text-[11.5px] text-faint" title={pasta}>
-                  {pasta} <span className="text-faint/70">(subpasta LisSecurity)</span>
-                </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <Aviso tom="neutro" icone={<Info />} className="mb-3">
+                  Não encontrei a pasta do Google Drive. Instala o <strong className="text-text">Google Drive para computador</strong> (drive.google.com/download), entra com a tua conta e volta aqui — ou escolhe outra pasta.
+                </Aviso>
               )}
+              <div className="flex flex-wrap items-center gap-2">
+                <Botao variante="contorno" tamanho="sm" icone={<FolderOpen />} onClick={escolherPasta}>
+                  Escolher outra pasta…
+                </Botao>
+                {pasta && (
+                  <span className="mono min-w-0 flex-1 truncate text-[11.5px] text-faint" title={pasta}>
+                    {pasta} <span className="text-faint/70">(subpasta LisSecurity)</span>
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex flex-wrap items-end justify-between gap-4">
             <Selecao
@@ -323,8 +381,12 @@ function Automaticas({ estado, aoMudar, aoAbrir }: { estado: EstadoCopias; aoMud
               <Botao variante="fantasma" onClick={() => void aplicar(false)} carregando={aGuardar}>
                 Desligar cópias automáticas
               </Botao>
+            ) : android ? (
+              <Botao icone={<FolderOpen />} carregando={aGuardar} onClick={() => void escolherPasta()}>
+                Escolher a pasta e ligar
+              </Botao>
             ) : (
-              <Botao icone={<Cloud />} disabled={!pasta} carregando={aGuardar} onClick={() => void aplicar(true)}>
+              <Botao icone={<Cloud />} disabled={!pasta || estado.noutroAparelho} carregando={aGuardar} onClick={() => void aplicar(true)}>
                 {drive && pasta === drive.caminho ? 'Ligar ao Google Drive' : 'Ligar cópias automáticas'}
               </Botao>
             )}
@@ -345,11 +407,11 @@ function Automaticas({ estado, aoMudar, aoAbrir }: { estado: EstadoCopias; aoMud
                       {dataHora(c.modificado)} · {tamanho(c.bytes)} · {c.automatica ? 'automática' : 'manual'}
                     </span>
                   </span>
-                  <span className="flex gap-1 opacity-70 transition-opacity group-hover:opacity-100">
-                    <Botao variante="fantasma" tamanho="sm" onClick={() => aoAbrir(c.caminho, 'testar')}>
+                  <span className="ao-passar flex gap-1 opacity-70 transition-opacity group-hover:opacity-100">
+                    <Botao variante="fantasma" tamanho="sm" onClick={() => aoAbrir({ id: c.caminho, nome: c.nome }, 'testar')}>
                       Testar
                     </Botao>
-                    <Botao variante="fantasma" tamanho="sm" onClick={() => aoAbrir(c.caminho, 'restaurar')}>
+                    <Botao variante="fantasma" tamanho="sm" onClick={() => aoAbrir({ id: c.caminho, nome: c.nome }, 'restaurar')}>
                       Restaurar
                     </Botao>
                   </span>
@@ -363,8 +425,36 @@ function Automaticas({ estado, aoMudar, aoAbrir }: { estado: EstadoCopias; aoMud
   )
 }
 
-function TestarRestaurar({ pedido, aoFechar }: { pedido: { modo: 'testar' | 'restaurar'; caminho?: string } | null; aoFechar: () => void }) {
-  const [caminho, setCaminho] = useState<string | null>(null)
+/**
+ * Android: as cópias automáticas vão para uma pasta escolhida no seletor do sistema (a app só tem
+ * acesso a essa pasta). O Google Drive não oferece pastas para escrita contínua, por isso a nuvem
+ * faz-se com «Guardar uma cópia» ou com uma app que sincronize a pasta.
+ */
+function PastaAndroid({ estado, aEscolher, aoEscolher }: { estado: EstadoCopias; aEscolher: boolean; aoEscolher: () => void }) {
+  const ligado = estado.config.ativo
+  return (
+    <div>
+      <p className="mb-2 text-[12px] font-semibold text-muted">Pasta</p>
+      {ligado && estado.destino ? (
+        <div className="flex items-center gap-3 rounded-xl border border-accent/30 bg-accent-soft/40 p-3">
+          <FolderOpen className="size-5 shrink-0 text-accent" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-text">{estado.destino}</span>
+          <Botao variante="contorno" tamanho="sm" onClick={aoEscolher} disabled={aEscolher}>
+            Mudar
+          </Botao>
+        </div>
+      ) : (
+        <Aviso tom="neutro" icone={<Info />}>
+          Escolhe uma pasta do telemóvel (por exemplo, uma pasta «LisSecurity» em Documentos). O Google Drive não deixa as apps escreverem sozinhas nas pastas dele: para teres a cópia na nuvem, usa <strong className="text-text">Guardar uma cópia</strong> e escolhe o Drive, ou uma app que sincronize esta pasta.
+        </Aviso>
+      )}
+    </div>
+  )
+}
+
+function TestarRestaurar({ pedido, aoFechar }: { pedido: Pedido | null; aoFechar: () => void }) {
+  const [ficheiro, setFicheiro] = useState<Escolhido | null>(null)
+  const caminho = ficheiro?.id ?? null
   const [senha, setSenha] = useState('')
   const [atual, setAtual] = useState('')
   const [info, setInfo] = useState<InfoCopia | null>(null)
@@ -373,7 +463,7 @@ function TestarRestaurar({ pedido, aoFechar }: { pedido: { modo: 'testar' | 'res
   const modo = pedido?.modo
 
   useEffect(() => {
-    setCaminho(pedido?.caminho ?? null)
+    setFicheiro(pedido?.ficheiro ?? null)
     setInfo(null)
     setErro(null)
   }, [pedido])
@@ -390,7 +480,7 @@ function TestarRestaurar({ pedido, aoFechar }: { pedido: { modo: 'testar' | 'res
     try {
       const c = await api.escolherCopia()
       if (c) {
-        setCaminho(c)
+        setFicheiro(c)
         setInfo(null)
         setErro(null)
       }
@@ -437,11 +527,11 @@ function TestarRestaurar({ pedido, aoFechar }: { pedido: { modo: 'testar' | 'res
   return (
     <Modal aberto={pedido !== null} aoFechar={fechar} titulo={modo === 'testar' ? 'Testar uma cópia de segurança' : 'Restaurar uma cópia de segurança'} largura="max-w-md" fecharComFundo={false}>
       <div className="space-y-4">
-        {caminho ? (
+        {ficheiro ? (
           <div className="flex items-center gap-2 rounded-xl border border-border bg-raised p-3">
             <FileLock2 className="size-4 shrink-0 text-accent" aria-hidden="true" />
-            <span className="mono min-w-0 flex-1 truncate text-[11.5px] text-muted" title={caminho}>
-              {caminho.split(/[\\/]/).pop()}
+            <span className="mono min-w-0 flex-1 truncate text-[11.5px] text-muted" title={ficheiro.id}>
+              {ficheiro.nome}
             </span>
             <button type="button" onClick={escolher} className="cursor-pointer text-[11.5px] font-semibold text-accent hover:text-accent-hover">
               Outra

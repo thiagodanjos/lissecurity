@@ -266,6 +266,86 @@ A pesquisa nunca procura em senhas, números, notas ou campos ocultos.
   chave do cofre e salt novos; pede a senha mestra.
 - **Zoom da janela** e cor de destaque guardam-se nas preferências fora do cofre (não são dados).
 
+## 7-B. Android (v0.3)
+
+O núcleo (`core/`) e os comandos (`src-tauri/src/comandos.rs`) são os mesmos do Windows: o
+formato do ficheiro, a criptografia, a sessão bloqueável e as vistas mascaradas não mudam. O que
+é próprio do Android está em `src-tauri/src/nativo.rs` (ponte Rust ↔ Kotlin), `plataforma.rs`,
+`biometria.rs` e na camada Kotlin em `src-tauri/gen/android/app/src/main/java/pt/lisfilms/lissecurity/`.
+A interface **nunca** fala com o Kotlin: o plugin nativo só é chamado pelo Rust.
+
+**Pacote e sistema**
+
+- **Sem a permissão `INTERNET`** no APK publicado (o manifesto remove-a, incluindo a que viria das
+  bibliotecas). A interface é servida pela própria app (`http://tauri.localhost`, intercetado
+  localmente). O CI confirma a ausência da permissão no APK e no emulador. Só o APK de
+  desenvolvimento (`src/debug`) a pede, para o servidor do Vite. O EmojiCompat, que pediria tipos
+  de letra ao Google Play Services, está desligado.
+- **Fora das cópias do Android**: `allowBackup="false"`, `fullBackupContent="false"` e
+  `dataExtractionRules` a excluir tudo (cópia na nuvem e transferência entre aparelhos). O cofre
+  vive na área privada da app; desinstalar apaga-o (o README avisa).
+- **Ecrã protegido**: `FLAG_SECURE` desde o `onCreate` da atividade (antes do primeiro frame) —
+  sem capturas, gravações, partilha de ecrã nem pré-visualização na lista de apps recentes. A
+  opção "Proteger contra capturas de ecrã" desliga-o, à escolha da pessoa.
+- **Componentes**: só a atividade principal é exportada. O recetor que limpa a área de
+  transferência não é exportado; o `FileProvider` só dá acesso à pasta `cache/partilha`, onde fica
+  a cópia cifrada enquanto a folha de partilha está aberta (é apagada depois).
+- **DevTools do WebView** só existe com `-PdepurarWebView=true`, usado apenas no APK de teste do
+  CI (`BuildConfig.DEPURAR_WEBVIEW`); o APK publicado é compilado sem ele.
+
+**Bloquear ao sair da app** (a política "bloquear ao minimizar", ligada por padrão): o
+`onStop` da atividade chama `Ponte.aoSairDaApp()` (JNI → `sistema::saiu_da_app`), que bloqueia o
+cofre na camada nativa — ao mudar de app, ir para o ecrã inicial ou apagar o ecrã. As atividades
+que a própria app abre (seletor de ficheiros, folha de partilha, pedido da biometria) não
+contam. O botão voltar fecha primeiro o que estiver aberto e, no início, manda a app para trás
+em vez de a terminar.
+
+**Ficheiros (Storage Access Framework)**: a app não pede acesso ao armazenamento. Lê e escreve
+só documentos escolhidos pela pessoa no seletor do sistema; a camada nativa regista os URIs
+escolhidos ou listados na sessão e recusa qualquer outro (o mesmo papel dos caminhos registados no
+Windows). A pasta das cópias automáticas é escolhida com `ACTION_OPEN_DOCUMENT_TREE` e a
+permissão fica guardada pelo Android; cada cópia é relida e verificada depois de escrita, e
+apagada se a verificação falhar. Leituras com limite de tamanho (50 MB para CSV, 128 MiB para
+cópias) e o conteúdo lido fica em `Zeroizing`.
+
+**Área de transferência**: o texto vai marcado com `EXTRA_IS_SENSITIVE` (o Android 13+ não o
+mostra na pré-visualização e os teclados que respeitam a marca não o guardam). A limpeza fica
+agendada duas vezes — com a app viva e num alarme do sistema, que corre mesmo com a app
+terminada; só a hora fica guardada, nunca o texto. **Diferença para o Windows**: em segundo
+plano, o Android não deixa nenhuma app ler a área de transferência, por isso aí limpa-se sem
+confirmar que o conteúdo ainda é o nosso (pode apagar algo copiado entretanto noutra app —
+preferível a deixar uma senha esquecida). Com a app à frente, só limpa o que é nosso.
+
+**Desbloqueio com biometria** (opcional, desligado por padrão):
+
+- Ao ligar, a camada nativa **confirma primeiro a senha mestra** (desembrulha a chave, não
+  compara) e só depois pede a biometria — sem segurar o cofre durante o pedido.
+- No Android Keystore é gerado um par **RSA-2048** (no hardware seguro, quando o telemóvel o tem),
+  com `setUserAuthenticationRequired(true)`, autenticação **por utilização** só com biometria
+  forte (`BIOMETRIC_STRONG`, classe 3) e `setInvalidatedByBiometricEnrollment(true)`. A chave
+  privada nunca sai do Keystore.
+- A **chave do cofre** (32 bytes, a mesma que a senha mestra desembrulha) é cifrada com a chave
+  pública (RSA-OAEP, SHA-256; MGF1 com SHA-1 por compatibilidade do Keystore) e guardada em
+  `noBackupFilesDir/biometria.bin` (versão ‖ id do cofre ‖ cifrado). Cifrar não precisa de
+  biometria, por isso a chave é renovada em silêncio sempre que muda (trocar a senha, recuperação,
+  reforçar a proteção, restaurar uma cópia).
+- Ao desbloquear, o `BiometricPrompt` liberta o `Cipher` de decifrar, a chave do cofre volta ao
+  Rust (base64 só na ponte, `Zeroizing` dos dois lados do Rust) e o cofre abre com
+  `Cofre::abrir_com_chave_do_cofre` — o mesmo caminho autenticado (XChaCha20-Poly1305) que a
+  senha. Se o ficheiro for de outro cofre ou a chave não abrir, a biometria é desligada e pede-se
+  a senha mestra.
+- Biometria nova registada, fecho de ecrã removido ou chave invalidada → o Keystore recusa, a
+  opção desliga-se e volta a ser precisa a senha mestra. Muitas tentativas falhadas → o Android
+  bloqueia a biometria durante algum tempo.
+- **Limite honesto**: quem conseguir desbloquear o telemóvel com uma biometria registada abre o
+  cofre. A biometria é um atalho de conveniência por cima da senha mestra, não um segundo fator.
+
+**Inserções e teclado**: a app desenha por baixo das barras do sistema e recebe as margens da
+camada Kotlin. Os campos têm `autocomplete`, correção automática e maiúsculas automáticas
+desligados, e os de senha são `type="password"` (o WebView pede ao teclado que não aprenda nem
+sugira o que lá se escreve). Ao revelar uma senha enquanto se escreve, o campo passa a texto e um
+teclado de terceiros pode ignorar o pedido — a recomendação é usar o teclado do sistema.
+
 ## 8. Privacidade e funcionamento offline
 
 Sem conta online, sem anúncios, sem rastreamento, sem analytics, sem sincronização, sem
@@ -286,11 +366,15 @@ do repositório (os instaladores do CI são compilados a partir do código públ
    se consegue apagar de forma determinística.
 5. **`obter_item_edicao`** envia o registo completo para o formulário; uma versão futura pode
    carregar os segredos campo a campo também na edição.
-6. **Windows Hello / biometria**: não implementado (teria de usar o TPM via Windows Hello para
-   proteger uma chave, e não apenas um "sim/não").
+6. **Windows Hello**: não implementado no PC (teria de usar o TPM via Windows Hello para
+   proteger uma chave, e não apenas um "sim/não"). No Android, a biometria usa o Keystore (7-B).
 7. **Teste com ficheiros maliciosos em larga escala** (fuzzing do leitor do formato).
 8. **Cópias na nuvem**: dependem do Google Drive para computador; uma alternativa futura é a API
    do Drive com a pasta oculta `appDataFolder` (exige credenciais OAuth próprias e tokens
    guardados no cofre — merece avaliação à parte).
 9. **Política de bloqueio por tentativas**: o atraso só existe dentro da app; contra quem copia
    o ficheiro, a defesa é o custo do Argon2id e a força da senha.
+10. **Android**: assinatura do APK com uma chave guardada só nos segredos do repositório (sem ela,
+    o CI não publica o APK); teste da biometria em aparelhos reais de vários fabricantes (o
+    emulador do CI não a cobre); o WebView do sistema é atualizado pela Play Store, fora do
+    controlo da app.

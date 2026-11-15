@@ -899,8 +899,8 @@ pub async fn partilhar_copia(app: AppHandle) -> R<()> {
 }
 
 #[tauri::command]
-pub async fn escolher_copia(app: AppHandle) -> R<Option<String>> {
-    em_segundo_plano(move || Ok(plataforma::escolher_ficheiro(&app, "Escolhe a cópia de segurança", Tipo::Copia)?.map(|e| e.id))).await
+pub async fn escolher_copia(app: AppHandle) -> R<Option<plataforma::Escolhido>> {
+    em_segundo_plano(move || plataforma::escolher_ficheiro(&app, "Escolhe a cópia de segurança", Tipo::Copia)).await
 }
 
 /// Lê uma cópia de segurança. No computador, um caminho (escolhido na janela de ficheiros ou

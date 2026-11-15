@@ -200,6 +200,29 @@ export interface EstadoApp {
   caminhoCofre: string
   geracao: number
   bloquearAoMinimizar: boolean
+  /** a disposição muda: janela com barra de título no computador, ecrã inteiro no Android */
+  plataforma: Plataforma
+}
+
+export type Plataforma = 'android' | 'windows' | 'linux' | 'macos'
+
+/** Margens do sistema no Android (barra de estado, navegação, teclado), em píxeis CSS. */
+export interface Margens {
+  topo: number
+  direita: number
+  baixo: number
+  esquerda: number
+  teclado: number
+}
+
+export interface EstadoBiometria {
+  /** esta plataforma tem desbloqueio biométrico (Android) */
+  suportada: boolean
+  /** há biometria forte registada neste aparelho */
+  disponivel: boolean
+  /** ativa para este cofre */
+  ativa: boolean
+  motivo: string | null
 }
 
 export interface Definicoes {
@@ -328,6 +351,12 @@ export interface InfoCopia {
   temRecuperacao: boolean
 }
 
+/** Ficheiro escolhido: `id` é o caminho (computador) ou o URI do documento (Android). */
+export interface Escolhido {
+  id: string
+  nome: string
+}
+
 export interface CopiaCriada {
   caminho: string
   nome: string
@@ -434,6 +463,8 @@ export interface ConfigCopias {
 export interface EstadoCopias {
   config: ConfigCopias
   destino: string | null
+  /** a pasta guardada é de outro aparelho (um caminho do Windows no telemóvel, ou o contrário) */
+  noutroAparelho: boolean
   ultimaAutomatica: number | null
   ultimoErro: string | null
   ultimaManual: number | null

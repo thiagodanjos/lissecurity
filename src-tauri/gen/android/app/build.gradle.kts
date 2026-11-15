@@ -22,7 +22,8 @@ val assinatura = Properties().apply {
     val f = rootProject.file("keystore.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
-fun valorAssinatura(chave: String, variavel: String): String? = assinatura.getProperty(chave) ?: System.getenv(variavel)
+fun valorAssinatura(chave: String, variavel: String): String? =
+    (assinatura.getProperty(chave) ?: System.getenv(variavel))?.takeIf { it.isNotBlank() }
 val ficheiroChave = valorAssinatura("storeFile", "LISSECURITY_KEYSTORE")
 
 // Só para o teste ponta-a-ponta no emulador: deixa o teste ligar-se à WebView (DevTools).

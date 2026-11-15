@@ -12,7 +12,9 @@ use zeroize::Zeroizing;
 
 use crate::estado::{trancar, ErroUi, Estado, R};
 
-/// Um ficheiro escolhido: `id` é o caminho (computador) ou o URI do documento (Android).
+/// Um ficheiro escolhido: `id` é o caminho (computador) ou o URI do documento (Android);
+/// `nome` é o que se mostra (no Android o URI não diz nada a quem o lê).
+#[derive(serde::Serialize)]
 pub struct Escolhido {
     pub id: String,
     pub nome: String,

@@ -19,6 +19,7 @@ const agora = Date.now()
 let existe = fase !== 'sem-cofre'
 let desbloqueado = fase === 'desbloqueado'
 let biometriaAtiva = q.get('biometria') === '1'
+let copiasAuto = { ativo: q.get('copias') === '1', pasta: q.get('copias') === '1' ? 'content://com.android.externalstorage.documents/tree/primary%3ADocuments%2FLisSecurity' : '', manter: 10 }
 let ultimoBackup: number | null = agora - 9 * DIA
 let geracao = 1
 
@@ -128,7 +129,7 @@ const itens: Item[] = [
   {
     id: novoId(), titulo: 'Wi-Fi de casa', favorito: false, categoria: '', etiquetas: [], notas: '', campos: [],
     criadoEm: agora - 50 * DIA, alteradoEm: agora - 50 * DIA, eliminadoEm: null,
-    conteudo: { tipo: 'nota', tipoNota: 'texto', conteudo: 'Rede: Casa-Ficticia\nSenha: exemplo-de-wifi-2026', codigos: [] },
+    conteudo: { tipo: 'nota', tipoNota: 'nota', conteudo: 'Rede: Casa-Ficticia\nSenha: exemplo-de-wifi-2026', codigos: [] },
   },
 ] as Item[]
 
@@ -154,7 +155,7 @@ function resumo(i: Item): Obj {
   if (c.tipo === 'login') Object.assign(base, { subtitulo: c.utilizador || c.email, dominio: dominio(String(c.url)) })
   if (c.tipo === 'banco') Object.assign(base, { subtitulo: c.banco, instituicao: c.banco, fim: String(c.iban || c.numeroConta).slice(-4), moeda: c.moeda, pais: c.pais, tipoDetalhe: c.tipoConta })
   if (c.tipo === 'cartao') Object.assign(base, { subtitulo: c.instituicao, instituicao: c.instituicao, fim: String(c.numero).slice(-4), bandeira: c.bandeira, validade: c.validade, tipoDetalhe: c.tipoCartao })
-  if (c.tipo === 'nota') Object.assign(base, { subtitulo: c.tipoNota === 'codigos' ? 'Códigos de recuperação' : 'Nota', tipoDetalhe: c.tipoNota, codigosPorUsar: (c.codigos as { usado: boolean }[]).filter((x) => !x.usado).length })
+  if (c.tipo === 'nota') Object.assign(base, { subtitulo: c.tipoNota === 'codigos' ? 'Códigos de recuperação' : 'Nota', tipoDetalhe: c.tipoNota, codigosPorUsar: c.tipoNota === 'codigos' ? (c.codigos as { usado: boolean }[]).filter((x) => !x.usado).length : undefined })
   return base
 }
 
@@ -412,8 +413,9 @@ async function comando(cmd: string, args: Obj): Promise<unknown> {
       console.info('[simulador] folha de partilha do Android')
       return null
     case 'escolher_copia':
+      return { id: 'content://simulado/copia', nome: 'LisSecurity-copia-2026-11-10_2130.lissec' }
     case 'escolher_csv':
-      return 'content://simulado/ficheiro'
+      return { id: 'content://simulado/csv', nome: 'Chrome Passwords.csv' }
     case 'testar_copia':
     case 'restaurar_copia':
       await espera(600)
@@ -441,9 +443,22 @@ async function comando(cmd: string, args: Obj): Promise<unknown> {
     case 'estado_copias':
     case 'configurar_copias':
     case 'fazer_copia_auto': {
+      if (cmd === 'configurar_copias') {
+        await espera(500)
+        copiasAuto = { ativo: !!args.ativo, pasta: String(args.pasta ?? ''), manter: Number(args.manter ?? 10) }
+      }
+      const auto = copiasAuto.ativo
       const est = {
-        config: { ativo: false, pasta: '', manter: 10 }, destino: null, noutroAparelho: false, ultimaAutomatica: null, ultimoErro: null, ultimaManual: ultimoBackup,
-        copias: [{ caminho: 'content://simulado/1', nome: 'LisSecurity-copia-2026-11-06_2210.lissec', bytes: 24576, modificado: agora - 9 * DIA, automatica: false }],
+        config: copiasAuto,
+        destino: copiasAuto.pasta ? (plataforma === 'android' ? 'LisSecurity' : `${copiasAuto.pasta}\\LisSecurity`) : null,
+        noutroAparelho: false,
+        ultimaAutomatica: auto ? agora - 3 * 60_000 : null,
+        ultimoErro: null,
+        ultimaManual: ultimoBackup,
+        copias: [
+          ...(auto ? [{ caminho: 'content://simulado/2', nome: 'LisSecurity-auto-2026-11-15_1712.lissec', bytes: 24576, modificado: agora - 3 * 60_000, automatica: true }] : []),
+          { caminho: 'content://simulado/1', nome: 'LisSecurity-copia-2026-11-06_2210.lissec', bytes: 24576, modificado: agora - 9 * DIA, automatica: false },
+        ],
       }
       if (cmd === 'listar_copias') return est.copias
       if (cmd === 'fazer_copia_auto') return { caminho: 'LisSecurity-auto.lissec', em: Date.now(), bytes: 24576 }

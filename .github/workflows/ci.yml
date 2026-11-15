@@ -1,5 +1,6 @@
-# LisSecurity: testes do núcleo e da interface, teste ponta-a-ponta da app real (Linux),
-# instalador para Windows (NSIS) e, quando pedido, a Release com o instalador e o SHA-256.
+# LisSecurity: testes do núcleo e da interface, teste ponta-a-ponta da app real (Linux e
+# emulador Android), instalador para Windows (NSIS), APK para Android e, quando pedido, a
+# Release com os dois ficheiros e o SHA-256 de cada um.
 name: LisSecurity
 
 on:
@@ -90,12 +91,114 @@ jobs:
           path: target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
+  android:
+    name: App Android (APK e teste no emulador)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      assinado: ${{ steps.publicar.outputs.assinado }}
+    env:
+      NDK_VERSAO: 28.2.13676358
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: NDK do Android
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSAO" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSAO" >> "$GITHUB_ENV"
+      - run: npm ci
+      - name: Núcleo criptográfico (cargo test)
+        run: cargo test -p lissecurity-core
+      # Mesma configuração da versão publicada (R8, sem permissão de internet), mais o DevTools
+      # do WebView, que só existe neste APK de teste (é por ele que o teste conduz a interface).
+      - name: APK de teste (x86_64, para o emulador)
+        env:
+          ORG_GRADLE_PROJECT_depurarWebView: "true"
+        run: |
+          npx tauri android build --target x86_64 --apk
+          mv src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk "$RUNNER_TEMP/teste.apk"
+      - name: Ativar a aceleração do emulador (KVM)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Teste ponta-a-ponta no emulador (Android 14)
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          CAPTURAS: ${{ runner.temp }}/capturas-android
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: |
+            adb install -r "$RUNNER_TEMP/teste.apk"
+            node e2e/android.mjs
+      - name: Capturas do teste no Android
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capturas-android
+          path: ${{ runner.temp }}/capturas-android
+          if-no-files-found: ignore
+      # A chave de assinatura vem dos segredos do repositório (nunca do código). Sem ela, o APK
+      # fica assinado com uma chave de depuração descartável: serve para experimentar, mas não
+      # vai para a Release (não atualizaria uma instalação feita com a chave verdadeira).
+      - name: APK para publicar (arm64)
+        id: publicar
+        env:
+          CHAVE_B64: ${{ secrets.LISSECURITY_KEYSTORE_B64 }}
+          LISSECURITY_KEYSTORE_SENHA: ${{ secrets.LISSECURITY_KEYSTORE_SENHA }}
+          LISSECURITY_CHAVE_ALIAS: ${{ secrets.LISSECURITY_CHAVE_ALIAS }}
+          LISSECURITY_CHAVE_SENHA: ${{ secrets.LISSECURITY_CHAVE_SENHA }}
+        run: |
+          if [ -n "$CHAVE_B64" ]; then
+            echo "$CHAVE_B64" | base64 -d > "$RUNNER_TEMP/lissecurity.jks"
+            export LISSECURITY_KEYSTORE="$RUNNER_TEMP/lissecurity.jks"
+            echo "assinado=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Sem LISSECURITY_KEYSTORE_B64: o APK fica assinado com uma chave de depuração e não entra na Release."
+            echo "assinado=false" >> "$GITHUB_OUTPUT"
+          fi
+          npx tauri android build --target aarch64 --apk
+          versao=$(jq -r .version src-tauri/tauri.conf.json)
+          mkdir -p apk
+          mv src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk "apk/LisSecurity-$versao-android.apk"
+          rm -f "$RUNNER_TEMP/lissecurity.jks"
+      - name: Confirmar o APK (sem internet, assinatura)
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/aapt2" dump permissions apk/*.apk | tee permissoes.txt
+          if grep -q "android.permission.INTERNET" permissoes.txt; then echo "::error::O APK pede acesso à internet"; exit 1; fi
+          "$BT/apksigner" verify --print-certs apk/*.apk | grep -E "Signer #1 certificate (DN|SHA-256)"
+      - name: Publicar o APK como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: LisSecurity-Android
+          path: apk/*.apk
+          if-no-files-found: error
+
   # Publica a Release da versão em src-tauri/tauri.conf.json, depois de tudo passar, quando:
   #  - se envia uma etiqueta vX.Y.Z, ou
   #  - um commit no main traz "[publicar-release]" na mensagem (a etiqueta é criada aqui).
   release:
     name: Publicar Release
-    needs: [testes, windows]
+    needs: [testes, windows, android]
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publicar-release]'))
     runs-on: ubuntu-24.04
     permissions:
@@ -119,15 +222,47 @@ jobs:
           ficheiro=$(ls *.exe)
           echo "ficheiro=$ficheiro" >> "$GITHUB_OUTPUT"
           echo "sha=$(sha256sum "$ficheiro" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        if: needs.android.outputs.assinado == 'true'
+        with:
+          name: LisSecurity-Android
+          path: instalador
+      - name: SHA-256 do APK e texto da secção Android
+        id: android
+        working-directory: instalador
+        env:
+          ASSINADO: ${{ needs.android.outputs.assinado }}
+        run: |
+          if [ "$ASSINADO" = "true" ]; then
+            apk=$(ls *.apk)
+            sha=$(sha256sum "$apk" | cut -d' ' -f1)
+            {
+              echo "texto<<FIM"
+              echo "### Android (7 ou mais recente, 64 bits)"
+              echo
+              echo "1. No telemóvel, descarrega **\`$apk\`** e abre-o. O Android pede para autorizar a instalação a partir do navegador ou da app de ficheiros — é o normal para apps fora da Play Store."
+              echo "2. Abre o LisSecurity, cria a tua senha mestra (ou restaura uma cópia \`.lissec\` do PC) e, se quiseres, liga o desbloqueio com a impressão digital nas Definições."
+              echo
+              echo "**SHA-256** \`$sha\`"
+              echo "FIM"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "texto=" >> "$GITHUB_OUTPUT"
+          fi
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.versao.outputs.versao }}
           target_commitish: ${{ github.sha }}
           name: LisSecurity ${{ steps.versao.outputs.versao }}
-          files: instalador/*.exe
+          files: |
+            instalador/*.exe
+            instalador/*.apk
+          fail_on_unmatched_files: false
           make_latest: true
           body: |
             ## Instalar
+
+            ### Windows
 
             1. Descarrega **`${{ steps.hash.outputs.ficheiro }}`** (em *Assets*, mais abaixo) e abre-o. Instala só para o teu utilizador, sem pedir administrador.
             2. O instalador ainda não tem assinatura de código: no aviso do SmartScreen escolhe **Mais informações → Executar mesmo assim**.
@@ -136,5 +271,7 @@ jobs:
             **SHA-256** `${{ steps.hash.outputs.sha }}`
             Para confirmar no PowerShell: `Get-FileHash .\${{ steps.hash.outputs.ficheiro }}`
 
-            Compilado pelo GitHub Actions a partir do commit ${{ github.sha }}, depois de passarem os testes do núcleo, da interface e o teste ponta-a-ponta na app real.
+            ${{ steps.android.outputs.texto }}
+
+            Compilado pelo GitHub Actions a partir do commit ${{ github.sha }}, depois de passarem os testes do núcleo, da interface e os testes ponta-a-ponta na app real (Linux e emulador Android).
             Antes de guardares dados importantes, lê a [nota de segurança](https://github.com/${{ github.repository }}/blob/main/docs/SEGURANCA.md).

@@ -3,6 +3,7 @@ import { Copy, KeyRound } from 'lucide-react'
 import { api, descartado } from '@/lib/ipc'
 import { avisar, erroParaTexto } from './avisos'
 import { Aviso, Botao } from './ui'
+import { aparelho } from '@/lib/movel'
 
 /**
  * Mostra uma chave de recuperação UMA vez. Não fica guardada em lado nenhum da interface:
@@ -40,7 +41,7 @@ export function MostrarChaveRecuperacao({ chave, aoConcluir, textoBotao = 'Conti
         </div>
       </div>
       <Aviso tom="ambar">
-        Escreve-a em papel ou guarda-a num sítio seguro <strong>fora deste computador</strong>. Quem tiver esta chave consegue abrir o
+        Escreve-a em papel ou guarda-a num sítio seguro <strong>fora deste {aparelho()}</strong>. Quem tiver esta chave consegue abrir o
         cofre. Não a voltamos a mostrar — se a perderes, podes gerar outra nas definições de segurança (com a senha mestra).
       </Aviso>
       <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-raised px-3.5 py-3 text-[13px] text-text">

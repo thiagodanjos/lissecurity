@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/readme/banner.svg" width="100%" alt="LisSecurity — cofre pessoal para Windows: senhas, contas bancárias e cartões cifrados no teu PC, sem conta e sem internet" />
+<img src="docs/readme/banner.svg" width="100%" alt="LisSecurity — cofre pessoal para Windows e Android: senhas, contas bancárias e cartões cifrados no teu aparelho, sem conta e sem internet" />
 
 <br>
 
@@ -8,6 +8,7 @@
 <a href="https://github.com/thiagodanjos/lissecurity/releases"><img src="https://img.shields.io/github/v/release/thiagodanjos/lissecurity?style=for-the-badge&label=vers%C3%A3o&color=161a20" alt="Versão mais recente" /></a>
 <a href="https://github.com/thiagodanjos/lissecurity/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/thiagodanjos/lissecurity/ci.yml?branch=main&style=for-the-badge&label=testes" alt="Estado dos testes" /></a>
 <img src="https://img.shields.io/badge/Windows-10_%7C_11-161a20?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 10 e 11" />
+<img src="https://img.shields.io/badge/Android-7%2B-161a20?style=for-the-badge&logo=android&logoColor=white" alt="Android 7 ou mais recente" />
 <a href="LICENSE"><img src="https://img.shields.io/badge/licen%C3%A7a-MIT-161a20?style=for-the-badge" alt="Licença MIT" /></a>
 
 </div>
@@ -15,9 +16,12 @@
 <br>
 
 O **LisSecurity** guarda as tuas senhas, contas bancárias, cartões e notas confidenciais num
-ficheiro cifrado **no teu computador**. Não há conta para criar, não há servidor e não precisa de
-internet: o cofre só abre com a tua senha mestra (ou com a chave de recuperação, se a criares).
-Não existe senha universal nem "suporte" capaz de o abrir por ti.
+ficheiro cifrado **no teu computador ou no teu telemóvel Android**. Não há conta para criar, não há
+servidor e não precisa de internet: o cofre só abre com a tua senha mestra (ou com a chave de
+recuperação, se a criares). Não existe senha universal nem "suporte" capaz de o abrir por ti.
+
+O cofre é o mesmo ficheiro `.lissec` nos dois: uma cópia de segurança feita no PC restaura-se no
+telemóvel, e vice-versa.
 
 <br>
 
@@ -33,6 +37,8 @@ Não existe senha universal nem "suporte" capaz de o abrir por ti.
 
 ## Instalar
 
+### Windows
+
 | | |
 | :-- | :-- |
 | **1 · Descarregar** | Em **[Releases](https://github.com/thiagodanjos/lissecurity/releases/latest)**, descarrega `LisSecurity_…_x64-setup.exe` (em *Assets*). |
@@ -41,9 +47,21 @@ Não existe senha universal nem "suporte" capaz de o abrir por ti.
 
 Funciona no **Windows 10 e 11 (64 bits)**. O WebView2 já vem com o Windows; se faltar, o instalador trata disso.
 
+### Android
+
+| | |
+| :-- | :-- |
+| **1 · Descarregar** | No telemóvel, abre as **[Releases](https://github.com/thiagodanjos/lissecurity/releases/latest)** e descarrega `LisSecurity-…-android.apk`. |
+| **2 · Instalar** | Abre o ficheiro. Como a app não vem da Play Store, o Android pede para autorizar a instalação a partir do navegador (ou da app de ficheiros) — autoriza só para isto. |
+| **3 · Criar ou trazer o cofre** | Cria uma senha mestra nova ou escolhe **Restaurar uma cópia de segurança** e abre a cópia `.lissec` do PC (do Google Drive, das Transferências…). Nas *Definições* podes ligar o desbloqueio com a **impressão digital**. |
+
+Funciona no **Android 7 ou mais recente (64 bits)**. A app não pede acesso à internet: o Android
+mostra-o na página da app, em *Permissões*.
+
 > [!TIP]
-> Cada Release mostra o **SHA-256** do instalador. Para confirmar que o ficheiro é exatamente o que
-> foi compilado pelo GitHub Actions, no PowerShell: `Get-FileHash .\LisSecurity_*_x64-setup.exe`
+> Cada Release mostra o **SHA-256** do instalador e do APK. Para confirmar que o ficheiro é
+> exatamente o que foi compilado pelo GitHub Actions, no PowerShell:
+> `Get-FileHash .\LisSecurity_*_x64-setup.exe` (ou `sha256sum` no Linux e no macOS).
 
 ## Como os teus dados ficam protegidos
 
@@ -53,8 +71,9 @@ Funciona no **Windows 10 e 11 (64 bits)**. O WebView2 já vem com o Windows; se 
 - **XChaCha20-Poly1305** cifra e autentica o cofre inteiro: se um único byte do ficheiro for alterado, o cofre recusa abrir.
 - A **chave do cofre** é aleatória e a senha mestra só a protege. Trocar a senha mestra gera chaves novas.
 - O núcleo em **Rust** não usa código `unsafe` e apaga os segredos da memória ao bloquear. A interface recebe os dados mascarados e só vê o valor real quando pedes para o mostrar ou copiar.
-- **Bloqueia sozinho** por inatividade, ao minimizar, ao suspender o PC e com Win+L. O que copias sai da área de transferência ao fim de 30 segundos (ajustável), mas só se ainda lá estiver.
-- Cada gravação é **atómica e verificada**: se o PC desligar a meio, o cofre anterior continua intacto.
+- **Bloqueia sozinho** por inatividade, ao minimizar, ao suspender o PC e com Win+L — no telemóvel, ao sair da app ou apagar o ecrã. O que copias sai da área de transferência ao fim de 30 segundos (ajustável), mas só se ainda lá estiver.
+- Cada gravação é **atómica e verificada**: se o aparelho desligar a meio, o cofre anterior continua intacto.
+- **No Android:** a app nem sequer pede a permissão de internet; o ecrã fica fora de capturas, gravações e da lista de apps recentes; o cofre vive na memória privada da app e fica fora das cópias automáticas do Android. A **impressão digital** é opcional: guarda a chave do cofre cifrada por uma chave do chip de segurança do telemóvel (Android Keystore), que só a liberta depois da biometria e deixa de funcionar se for registada uma biometria nova.
 
 O modelo de ameaças, o formato do ficheiro e as decisões técnicas estão em **[docs/SEGURANCA.md](docs/SEGURANCA.md)**.
 
@@ -65,9 +84,10 @@ O modelo de ameaças, o formato do ficheiro e as decisões técnicas estão em *
 
 ## Cópias de segurança
 
-- **Google Drive (recomendado):** instala o [Google Drive para computador](https://www.google.com/drive/download/) e, no LisSecurity, abre *Cópias de segurança → Google Drive → Ligar*. A cada alteração fica uma cópia cifrada em `O meu disco/LisSecurity/`, e o Drive envia-a para a nuvem. A Google só vê um ficheiro cifrado.
+- **Google Drive (recomendado no PC):** instala o [Google Drive para computador](https://www.google.com/drive/download/) e, no LisSecurity, abre *Cópias de segurança → Google Drive → Ligar*. A cada alteração fica uma cópia cifrada em `O meu disco/LisSecurity/`, e o Drive envia-a para a nuvem. A Google só vê um ficheiro cifrado.
+- **No telemóvel:** *Guardar uma cópia…* abre o seletor do Android, onde podes escolher o **Google Drive**, as Transferências ou uma pen USB; *Enviar uma cópia…* usa a partilha do Android (e-mail, Drive, uma conversa contigo). As **automáticas** vão para uma pasta do telemóvel à tua escolha — o Google Drive não deixa as apps escreverem sozinhas nas pastas dele, por isso, para a nuvem, junta-lhes uma cópia guardada no Drive de vez em quando.
 - **Manuais:** para uma pen ou outro disco. Cada cópia é relida e verificada depois de gravada.
-- **Testar e restaurar:** *Testar uma cópia* abre-a sem mexer no cofre atual. Num PC novo, *Restaurar uma cópia de segurança* mostra as cópias que encontrar no Drive.
+- **Testar e restaurar:** *Testar uma cópia* abre-a sem mexer no cofre atual. Num aparelho novo, *Restaurar uma cópia de segurança* (no primeiro ecrã) abre uma cópia feita no PC ou no telemóvel; no PC mostra logo as que encontrar no Drive.
 
 Uma cópia abre com a senha mestra que estava em uso quando foi feita. Depois de trocares a senha, faz uma cópia nova.
 
@@ -105,12 +125,25 @@ categoria, a evolução de seis meses e os pagamentos recorrentes, tudo cifrado 
 </details>
 
 <details>
-<summary><b>Posso usar o cofre noutro computador?</b></summary>
+<summary><b>Posso usar o cofre noutro computador ou no telemóvel?</b></summary>
 <br>
 
-Sim: instala o LisSecurity no outro PC e restaura uma cópia de segurança (do Google Drive, de uma
-pen…). Para usar nos dois ao mesmo tempo, o mais seguro é ter um cofre principal e ir restaurando
-cópias, porque não há sincronização automática entre cofres.
+Sim: instala o LisSecurity no outro PC ou no telemóvel Android e restaura uma cópia de segurança
+(do Google Drive, de uma pen…). O ficheiro é o mesmo nos dois. Para usar em dois aparelhos ao
+mesmo tempo, o mais seguro é ter um cofre principal e ir restaurando cópias no outro, porque não
+há sincronização automática entre cofres (sincronizar obrigaria a app a ir à internet).
+
+</details>
+
+<details>
+<summary><b>A impressão digital substitui a senha mestra?</b></summary>
+<br>
+
+Não: é um atalho opcional para abrir o cofre no telemóvel. A senha mestra continua a ser precisa
+para a ligar, para mudanças importantes (trocar a senha, restaurar cópias) e sempre que o Android
+invalidar a chave — por exemplo, se registares uma impressão digital nova. Quem conseguir
+desbloquear o telemóvel com uma biometria registada consegue abrir o cofre; se partilhas o
+telemóvel com alguém que tem lá a biometria, deixa esta opção desligada.
 
 </details>
 
@@ -137,6 +170,9 @@ publicado em cada Release; o instalador é compilado pelo GitHub Actions a parti
 
 Desinstalar não apaga o cofre. Para o apagar, remove a pasta à mão.
 
+No **Android**, o cofre fica na memória privada da app (só o LisSecurity lhe chega) e
+**desinstalar a app apaga-o** — faz antes uma cópia de segurança.
+
 </details>
 
 ## Para quem programa
@@ -145,8 +181,9 @@ Desinstalar não apaga o cofre. Para o apagar, remove a pasta à mão.
 | :-- | :-- |
 | [`core/`](core) | `lissecurity-core` em Rust (`#![forbid(unsafe_code)]`): Argon2id, XChaCha20-Poly1305, formato `.lissec`, gravação atómica, modelo de dados, vistas mascaradas, gerador, 2FA, importação e finanças. Tudo o que decide a segurança está aqui e é testado sozinho. |
 | [`src-tauri/`](src-tauri) | Camada nativa (Tauri 2): sessão bloqueável, comandos específicos, integração com o Windows (suspensão, Win+L, área de transferência), janela sem moldura, CSP estrita e navegação bloqueada. |
-| [`src/`](src) | Interface em React 19 + TypeScript + Vite + Tailwind 4 + framer-motion, com a identidade visual do LisFilms. |
-| [`e2e/`](e2e) | Teste ponta-a-ponta que conduz a app real com WebDriver. |
+| [`src-tauri/gen/android/`](src-tauri/gen/android) | Projeto Android: a camada Kotlin (ficheiros pelo seletor do sistema, área de transferência, biometria com o Keystore, ecrã protegido, ciclo de vida) e o manifesto endurecido (sem internet, sem cópias do Android). |
+| [`src/`](src) | Interface em React 19 + TypeScript + Vite + Tailwind 4 + framer-motion, com a identidade visual do LisFilms; no telemóvel, navegação em baixo, folhas que sobem do fundo e o botão voltar do Android. |
+| [`e2e/`](e2e) | Testes ponta-a-ponta que conduzem a app real: com WebDriver no Linux e, no emulador Android, pelo DevTools do WebView. |
 | [`docs/`](docs) | [Segurança](docs/SEGURANCA.md) · [Design](docs/DESIGN.md) · [Testes](docs/TESTES.md) · [capturas](docs/capturas). |
 
 **Compilar no Windows:** instala o [Rust](https://rustup.rs) (`stable-x86_64-pc-windows-msvc`),
@@ -163,10 +200,23 @@ npm run dist
 
 O instalador fica em `target/release/bundle/nsis/`. Para desenvolver com recarga automática: `npm run app`.
 
+**Compilar para Android:** além do Rust e do Node, o [JDK 21](https://adoptium.net), o Android SDK
+(com `ANDROID_HOME`) e o NDK 28 (com `NDK_HOME`), e o alvo `rustup target add aarch64-linux-android`.
+Depois:
+
+```bash
+npx tauri android build --target aarch64 --apk
+```
+
+O APK fica em `src-tauri/gen/android/app/build/outputs/apk/universal/release/`. Sem chave de
+assinatura (ver [docs/TESTES.md](docs/TESTES.md#android)), é assinado com a chave de depuração.
+Para ver a interface do telemóvel no navegador, sem Android: `npm run dev` e abrir
+`http://localhost:5174/?simular=android` (um cofre fictício, só em desenvolvimento).
+
 **Testes:** `cargo test --workspace` (núcleo e camada nativa), `npm test` (validações da interface)
 e o teste ponta-a-ponta na app real (ver [docs/TESTES.md](docs/TESTES.md)). O
-[workflow](.github/workflows/ci.yml) corre tudo isto em cada alteração, compila o instalador no
-Windows e publica as Releases.
+[workflow](.github/workflows/ci.yml) corre tudo isto em cada alteração (incluindo o teste no
+emulador Android), compila o instalador do Windows e o APK e publica as Releases.
 
 ## Licença
 

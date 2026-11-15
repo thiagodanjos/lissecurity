@@ -12,6 +12,7 @@ import { CartaoVisual, IconeRegisto } from '@/componentes/registo'
 import { Botao, BotaoIcone, confirmar, Spinner, Vazio } from '@/componentes/ui'
 import { FilaComSetas } from '@/componentes/fila'
 import { Detalhe } from './Detalhe'
+import { ehAndroid, useVoltar } from '@/lib/movel'
 
 const TEXTOS: Record<TipoItem, { titulo: string; singular: string; novo: string; vazio: string; dica: string; icone: React.ReactNode }> = {
   login: { titulo: 'Senhas', singular: 'senha', novo: 'Nova senha', vazio: 'Ainda não há senhas no cofre', dica: 'Guarda aqui os acessos a sites, aplicações e serviços.', icone: <KeyRound /> },
@@ -106,6 +107,13 @@ export function Registos({ tipo }: { tipo: TipoItem }) {
 
   const mostrarDetalhe = !!selecionado
   const total = lista?.length ?? 0
+  const android = ehAndroid()
+  // telemóvel: o voltar do sistema fecha o detalhe; o botão «+» esconde-se por cima dele
+  useVoltar(sobreposto && mostrarDetalhe, () => setSelecionado(null))
+  useEffect(() => {
+    useSessao.getState().definirDetalheAberto(sobreposto && mostrarDetalhe)
+    return () => useSessao.getState().definirDetalheAberto(false)
+  }, [sobreposto, mostrarDetalhe])
 
   return (
     <div className="relative flex min-h-0 flex-1">
@@ -123,9 +131,12 @@ export function Registos({ tipo }: { tipo: TipoItem }) {
                   <Upload />
                 </BotaoIcone>
               )}
-              <Botao tamanho="sm" icone={<Plus />} onClick={() => novoRegisto(tipo)}>
-                {t.novo}
-              </Botao>
+              {/* no telemóvel há o botão «+» flutuante */}
+              {!android && (
+                <Botao tamanho="sm" icone={<Plus />} onClick={() => novoRegisto(tipo)}>
+                  {t.novo}
+                </Botao>
+              )}
             </div>
           </div>
           <div className="relative">
@@ -220,7 +231,7 @@ export function Registos({ tipo }: { tipo: TipoItem }) {
             if (e.key === 'ArrowDown') (e.preventDefault(), mover(1))
             if (e.key === 'ArrowUp') (e.preventDefault(), mover(-1))
           }}
-          className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/30"
+          className={cn('min-h-0 flex-1 overflow-y-auto px-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/30', android ? 'pb-28' : 'pb-4')}
         >
           {lista === null ? (
             <div className="flex justify-center py-10">

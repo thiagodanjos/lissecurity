@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { avisar, erroParaTexto } from '@/componentes/avisos'
 import { MedidorForca, useForca } from '@/componentes/forca'
 import { Botao, Cartao, Interruptor, Segmentado, TituloSecao } from '@/componentes/ui'
+import { aparelho } from '@/lib/movel'
 
 /** Gerador local. As senhas geradas não ficam em histórico nenhum: ao sair da página, desaparecem. */
 export function Gerador() {
@@ -70,12 +71,12 @@ export function Gerador() {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl space-y-8 px-8 py-8">
+      <div className="mx-auto max-w-3xl space-y-7 px-4 pb-8 pt-5 sm:space-y-8 sm:px-8 sm:py-8 espaco-fab">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight">
             Gerador de <span className="text-brand-gradient">senhas</span>
           </h1>
-          <p className="mt-1.5 text-sm text-muted">Gerado neste computador com o gerador criptográfico do sistema. Nada fica guardado até decidires guardar.</p>
+          <p className="mt-1.5 text-sm text-muted">Gerado neste {aparelho()} com o gerador criptográfico do sistema. Nada fica guardado até decidires guardar.</p>
         </div>
 
         <Cartao className="overflow-hidden">

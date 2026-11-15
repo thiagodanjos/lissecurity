@@ -61,9 +61,9 @@ export function Detalhe({ id, aoFechar, aoMudar }: { id: string; aoFechar?: () =
           : TIPOS_NOTA[c.tipoNota] ?? 'Nota'
 
   return (
-    <motion.div key={id} initial={{ opacity: 0, x: 14 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }} className="mx-auto max-w-2xl px-6 py-6">
-      {/* cabeçalho */}
-      <div className="mb-6 flex items-start gap-4">
+    <motion.div key={id} initial={{ opacity: 0, x: 14 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }} className="mx-auto max-w-2xl px-4 py-5 sm:px-6 sm:py-6">
+      {/* cabeçalho (num ecrã estreito, as ações passam para uma linha própria) */}
+      <div className="mb-6 flex flex-wrap items-start gap-x-4 gap-y-3">
         {aoFechar && (
           <BotaoIcone rotulo="Voltar à lista" tamanho="sm" onClick={aoFechar} className="mt-1">
             <ArrowLeft />
@@ -82,7 +82,7 @@ export function Detalhe({ id, aoFechar, aoMudar }: { id: string; aoFechar?: () =
             </div>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5 max-[560px]:basis-full max-[560px]:justify-end">
           {noLixo ? (
             <>
               <Botao variante="escuro" tamanho="sm" icone={<ArchiveRestore />} onClick={() => executar(() => api.restaurarItem(id), 'Registo restaurado.')}>

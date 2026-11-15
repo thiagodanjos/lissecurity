@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeft, KeyRound, LockKeyhole, ShieldCheck, WifiOff } from 'lucide-react'
+import { ArrowLeft, Fingerprint, KeyRound, LockKeyhole, ShieldCheck, WifiOff } from 'lucide-react'
 import { api, ErroIpc, descartado } from '@/lib/ipc'
 import { useSessao } from '@/lib/sessao'
 import { FundoLis } from '@/componentes/fundo'
 import { avisar } from '@/componentes/avisos'
 import { Aviso, Botao, Campo, CampoSenha, Marca, Simbolo } from '@/componentes/ui'
 import { cn } from '@/lib/utils'
+import { aparelho, ehAndroid } from '@/lib/movel'
+import type { EstadoBiometria } from '@/lib/tipos'
 
 const MOTIVOS: Record<string, string> = {
   inatividade: 'Bloqueado por inatividade',
-  suspensao: 'Bloqueado porque o computador suspendeu',
+  suspensao: 'Bloqueado porque o aparelho suspendeu',
+  'sair-da-app': 'Bloqueado porque saíste da app',
   sistema: 'Bloqueado com a sessão do Windows',
   minimizar: 'Bloqueado ao minimizar',
   sessao: 'A sessão do cofre terminou',
@@ -27,10 +30,67 @@ export function Desbloqueio() {
   const [tentativa, setTentativa] = useState(0)
   const [capsLock, setCapsLock] = useState(false)
   const campo = useRef<HTMLInputElement>(null)
+  const [bio, setBio] = useState<EstadoBiometria | null>(null)
+  const pedidoAutomatico = useRef(false)
+  const comBiometria = !!bio?.ativa && bio.disponivel && modo === 'senha'
 
   useEffect(() => {
+    // com a biometria ativa, o teclado não abre por cima do pedido da impressão digital
+    if (ehAndroid() && (bio === null || comBiometria)) return
     setTimeout(() => campo.current?.focus(), 60)
-  }, [modo])
+  }, [modo, bio, comBiometria])
+
+  const depoisDeAbrir = async (r: { recuperadoAnterior: boolean }) => {
+    setSenha('')
+    setChave('')
+    if (r.recuperadoAnterior) {
+      avisar('info', 'O ficheiro do cofre estava danificado: foi reposta a versão anterior.', 8000)
+    }
+    const estado = await api.estadoApp()
+    useSessao.getState().carregar(estado)
+  }
+
+  /** Impressão digital ou rosto: o Android Keystore devolve a chave do cofre ao Rust. */
+  const abrirComBiometria = async () => {
+    if (aAbrir) return
+    setAAbrir(true)
+    setErro(null)
+    try {
+      await depoisDeAbrir(await api.desbloquearBiometria())
+    } catch (err) {
+      setAAbrir(false)
+      if (descartado(err)) return
+      const codigo = err instanceof ErroIpc ? err.codigo : ''
+      if (codigo === 'cancelado') {
+        setTimeout(() => campo.current?.focus(), 60)
+        return
+      }
+      if (['biometria_desatualizada', 'biometria_invalidada', 'sem_biometria'].includes(codigo)) {
+        api.estadoBiometria().then(setBio).catch(() => {})
+      }
+      setErro(err instanceof Error ? err.message : 'Não foi possível usar a biometria.')
+      setTentativa((t) => t + 1)
+    }
+  }
+
+  useEffect(() => {
+    let vivo = true
+    api
+      .estadoBiometria()
+      .then((b) => {
+        if (!vivo) return
+        setBio(b)
+        // pede a impressão digital logo ao abrir, uma vez (cancelar deixa escrever a senha)
+        if (b.ativa && b.disponivel && !pedidoAutomatico.current) {
+          pedidoAutomatico.current = true
+          void abrirComBiometria()
+        }
+      })
+      .catch(() => vivo && setBio({ suportada: false, disponivel: false, ativa: false, motivo: null }))
+    return () => {
+      vivo = false
+    }
+  }, [])
 
   const abrir = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -44,14 +104,7 @@ export function Desbloqueio() {
     setAAbrir(true)
     setErro(null)
     try {
-      const r = modo === 'senha' ? await api.desbloquear(valor) : await api.desbloquearRecuperacao(valor)
-      setSenha('')
-      setChave('')
-      if (r.recuperadoAnterior) {
-        avisar('info', 'O ficheiro do cofre estava danificado: foi reposta a versão anterior.', 8000)
-      }
-      const estado = await api.estadoApp()
-      useSessao.getState().carregar(estado)
+      await depoisDeAbrir(modo === 'senha' ? await api.desbloquear(valor) : await api.desbloquearRecuperacao(valor))
     } catch (err) {
       if (descartado(err)) {
         setAAbrir(false)
@@ -120,7 +173,7 @@ export function Desbloqueio() {
               onKeyUp={tecla}
               disabled={aAbrir}
               placeholder="A tua frase-senha"
-              autoFocus
+              autoFocus={!ehAndroid()}
             />
           ) : (
             <Campo
@@ -151,7 +204,12 @@ export function Desbloqueio() {
           <Botao type="submit" largo tamanho="lg" carregando={aAbrir} className="mt-5">
             {aAbrir ? 'A abrir o cofre…' : modo === 'senha' ? 'Desbloquear' : 'Abrir com a chave'}
           </Botao>
-          {aAbrir && <p className="mt-2.5 text-center text-[11.5px] text-faint">A derivar a chave com Argon2id — demora cerca de um segundo de propósito.</p>}
+          {aAbrir && !comBiometria && <p className="mt-2.5 text-center text-[11.5px] text-faint">A derivar a chave com Argon2id — demora cerca de um segundo de propósito.</p>}
+          {comBiometria && (
+            <Botao type="button" variante="contorno" largo tamanho="lg" icone={<Fingerprint />} className="mt-3" disabled={aAbrir} onClick={() => void abrirComBiometria()}>
+              Usar a impressão digital
+            </Botao>
+          )}
         </form>
 
         <div className="mt-5 text-center">
@@ -189,7 +247,7 @@ export function Desbloqueio() {
 
       <p className="absolute inset-x-0 bottom-4 flex items-center justify-center gap-3 text-[11px] text-faint">
         <span className="inline-flex items-center gap-1.5">
-          <ShieldCheck className="size-3.5" aria-hidden="true" /> Cifrado neste computador
+          <ShieldCheck className="size-3.5" aria-hidden="true" /> Cifrado neste {aparelho()}
         </span>
         <span aria-hidden="true">·</span>
         <span className="inline-flex items-center gap-1.5">

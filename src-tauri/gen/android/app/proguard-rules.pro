@@ -22,4 +22,3 @@
 # LisSecurity: a ponte JNI chamada pelo Rust e o plugin carregado por nome (nativo.rs)
 -keep class pt.lisfilms.lissecurity.Ponte { *; }
 -keep class pt.lisfilms.lissecurity.NativoPlugin { *; }
--keep class pt.lisfilms.lissecurity.EstadoApp { *; }

@@ -3,6 +3,7 @@
 import { api, descartado } from './ipc'
 import { useSessao } from './sessao'
 import { depoisDePintar } from './utils'
+import { aplicarZoom } from './movel'
 import { avisar, erroParaTexto, limparAvisos } from '@/componentes/avisos'
 import { cancelarConfirmacao } from '@/componentes/ui'
 import type { ConfigApp, TipoItem } from './tipos'
@@ -73,6 +74,7 @@ export function aplicarAparencia(c: ConfigApp | null) {
   html.dataset.cor = c?.cor ?? 'verde'
   const reduzir = c?.animacoes === 'reduzidas' || (c?.animacoes !== 'completas' && matchMedia('(prefers-reduced-motion: reduce)').matches)
   html.dataset.movimento = reduzir ? 'reduzido' : 'normal'
+  aplicarZoom(c?.zoom ?? 1)
 }
 
 export function movimentoReduzido(c: ConfigApp | null): boolean {

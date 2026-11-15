@@ -23,14 +23,14 @@ async fn em_segundo_plano<T: Send + 'static>(f: impl FnOnce() -> R<T> + Send + '
 
 /// Janela "abrir ficheiro" para CSV. O ficheiro fica registado como escolhido pela pessoa.
 #[tauri::command]
-pub async fn escolher_csv(app: AppHandle, titulo: String) -> R<Option<String>> {
+pub async fn escolher_csv(app: AppHandle, titulo: String) -> R<Option<plataforma::Escolhido>> {
     if !app.state::<Estado>().desbloqueado() {
         return Err(ErroUi::bloqueado());
     }
     let app2 = app.clone();
     em_segundo_plano(move || {
         let titulo: String = titulo.chars().take(80).collect();
-        Ok(plataforma::escolher_ficheiro(&app2, &titulo, Tipo::Csv)?.map(|e| e.id))
+        plataforma::escolher_ficheiro(&app2, &titulo, Tipo::Csv)
     })
     .await
 }

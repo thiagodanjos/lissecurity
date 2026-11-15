@@ -194,3 +194,47 @@ html[data-movimento="reduzido"] *::after {
   scroll-behavior: auto !important;
 }
 html[data-movimento="reduzido"] .roda { animation-duration: 1.4s !important; animation-iteration-count: infinite !important; }
+
+/* ==========================================================================
+   Android (data-plataforma="android", posto pela camada nativa no arranque)
+   A app ocupa o ecrã todo e desenha-se por baixo das barras do sistema: as margens vêm da
+   camada Kotlin em --sistema-topo/-baixo/-esquerda/-direita/-teclado (píxeis CSS).
+   ========================================================================== */
+html[data-plataforma="android"] {
+  -webkit-tap-highlight-color: transparent;
+  /* o texto do sistema (tamanho da letra nas definições do Android) também conta */
+  -webkit-text-size-adjust: 100%;
+}
+html[data-plataforma="android"] body {
+  background-color: var(--color-bg);
+  cursor: auto;
+}
+/* sem barras de deslocamento no telemóvel (rola-se com o dedo) */
+html[data-plataforma="android"] *::-webkit-scrollbar { display: none; }
+html[data-plataforma="android"] * { scrollbar-width: none; overscroll-behavior: contain; }
+/* ecrãs fora do cofre (arranque, desbloqueio, nova senha): longe das barras do sistema */
+html[data-plataforma="android"] .ecra-sistema {
+  padding-top: var(--sistema-topo, 0px);
+  padding-bottom: max(var(--sistema-baixo, 0px), var(--sistema-teclado, 0px));
+  padding-left: var(--sistema-esquerda, 0px);
+  padding-right: var(--sistema-direita, 0px);
+}
+/* o toque não tem «passar por cima»: o que no computador aparece ao passar o rato, aqui está sempre */
+@media (hover: none) {
+  .ao-passar { opacity: 1 !important; visibility: visible !important; }
+}
+/* letra dos campos a 16 px: legível e o teclado do Android não aproxima a página */
+html[data-plataforma="android"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+html[data-plataforma="android"] textarea,
+html[data-plataforma="android"] select {
+  font-size: 16px;
+}
+/* folhas e diálogos: o rodapé fica acima da navegação do sistema (ou do teclado) */
+html[data-plataforma="android"] .rodape-folha {
+  padding-bottom: calc(14px + max(0px, var(--sistema-baixo, 0px) - var(--sistema-teclado, 0px)));
+}
+/* atalhos de teclado não fazem sentido no telemóvel */
+html[data-plataforma="android"] kbd,
+html[data-plataforma="android"] .tecla-atalho { display: none; }
+/* espaço no fim das páginas para o botão «+» não tapar o último cartão */
+html[data-plataforma="android"] .espaco-fab { padding-bottom: 7rem; }

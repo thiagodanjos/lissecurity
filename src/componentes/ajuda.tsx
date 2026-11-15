@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { ShieldCheck } from 'lucide-react'
 import { useSessao } from '@/lib/sessao'
 import { Kbd, Marca, Modal } from './ui'
+import { aparelho } from '@/lib/movel'
 
 export const useAjuda = create<{ aberto: 'atalhos' | 'sobre' | null; abrir: (q: 'atalhos' | 'sobre') => void; fechar: () => void }>((set) => ({
   aberto: null,
@@ -42,13 +43,13 @@ export function Ajuda() {
           <Marca tamanho="lg" />
           <p className="mt-3 text-[12.5px] text-faint">Versão {versao ?? '—'} · da família LisFilms</p>
           <p className="mt-4 max-w-sm text-[13px] leading-relaxed text-muted">
-            O teu cofre pessoal de senhas, dados bancários, cartões e notas. Tudo fica cifrado neste computador e funciona sem internet.
+            O teu cofre pessoal de senhas, dados bancários, cartões e notas. Tudo fica cifrado neste {aparelho()} e funciona sem internet.
           </p>
           <div className="mt-5 w-full space-y-2 rounded-xl border border-border bg-raised p-4 text-left text-[12.5px] text-muted">
             <p className="flex items-center gap-2 font-semibold text-text">
               <ShieldCheck className="size-4 text-accent" aria-hidden="true" /> Como está protegido
             </p>
-            <p>Senha mestra → Argon2id (calibrado para este computador) → chave que abre a chave do cofre.</p>
+            <p>Senha mestra → Argon2id (calibrado para este {aparelho()}) → chave que abre a chave do cofre.</p>
             <p>Registos, definições, lixo e históricos → um único bloco cifrado com XChaCha20-Poly1305 (cifra autenticada).</p>
             <p>Sem contas online, sem telemetria, sem sincronização.</p>
           </div>

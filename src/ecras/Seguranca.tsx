@@ -11,6 +11,7 @@ import { MedidorForca, ROTULOS_FORCA, textoCorForca, useForca } from '@/componen
 import { MostrarChaveRecuperacao } from '@/componentes/chave-recuperacao'
 import { IconeRegisto } from '@/componentes/registo'
 import { Aviso, Botao, Cartao, CampoSenha, Etiqueta, Modal, Spinner, TituloSecao } from '@/componentes/ui'
+import { aparelho, ehAndroid } from '@/lib/movel'
 
 export function Seguranca() {
   const versao = useSessao((s) => s.versao)
@@ -46,13 +47,13 @@ export function Seguranca() {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-5xl space-y-10 px-8 py-8">
+      <div className="mx-auto max-w-5xl space-y-8 px-4 pb-8 pt-5 sm:space-y-10 sm:px-8 sm:py-8 espaco-fab">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight">
             <span className="text-brand-gradient">Segurança</span> do cofre
           </h1>
-          <p className="mt-1.5 text-sm text-muted">Factos verificáveis sobre o que está guardado — sem pontuações inventadas. Tudo calculado neste computador.</p>
-          <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <p className="mt-1.5 text-sm text-muted">Factos verificáveis sobre o que está guardado — sem pontuações inventadas. Tudo calculado neste {aparelho()}.</p>
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             {resumo.map((c, i) => (
               <motion.div key={c.rotulo} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.06 * i }}>
                 <Cartao className="p-4">
@@ -60,7 +61,7 @@ export function Seguranca() {
                     <div className={cn('rounded-xl p-2.5 [&_svg]:size-[18px]', c.valor > 0 ? 'bg-warn-soft text-warn' : 'bg-accent-soft text-accent')}>{c.valor > 0 ? c.icone : <Check />}</div>
                     <div className="min-w-0">
                       <p className="text-xl font-extrabold leading-none tabular-nums">{c.valor}</p>
-                      <p className="mt-1 truncate text-[11px] text-muted">
+                      <p className="mt-1 text-[11px] leading-snug text-muted max-sm:line-clamp-2 sm:truncate">
                         {c.rotulo}
                         {c.detalhe && <span className="text-faint"> · {c.detalhe}</span>}
                       </p>
@@ -128,7 +129,7 @@ export function Seguranca() {
                 <div className="min-w-0 flex-1">
                   <h3 className="text-[14px] font-bold">Senha mestra</h3>
                   <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
-                    Derivada com Argon2id ({r.kdfMemoriaMib} MiB, {plural(r.kdfIteracoes, 'iteração', 'iterações')}), calibrado para este computador.
+                    Derivada com Argon2id ({r.kdfMemoriaMib} MiB, {plural(r.kdfIteracoes, 'iteração', 'iterações')}), calibrado para este {aparelho()}.
                   </p>
                   <Botao variante="contorno" tamanho="sm" className="mt-3.5" onClick={() => setModal('senha')}>
                     Alterar senha mestra
@@ -177,7 +178,7 @@ export function Seguranca() {
               <ul className="space-y-2 text-[12.5px] leading-relaxed text-muted">
                 <li>Cópia ou roubo do ficheiro do cofre e das cópias de segurança: sem a senha, só se vê texto cifrado.</li>
                 <li>Alterações ao ficheiro: qualquer byte mexido é detetado e o cofre não abre com dados adulterados.</li>
-                <li>Acesso casual ao computador: bloqueio automático, ao minimizar, ao suspender e com o Windows.</li>
+                <li>{ehAndroid() ? 'Acesso casual ao telemóvel: bloqueio automático, ao sair da app e ao desligar o ecrã; sem capturas de ecrã.' : 'Acesso casual ao computador: bloqueio automático, ao minimizar, ao suspender e com o Windows.'}</li>
                 <li>Fugas acidentais: nada de segredos em registos, temporários, títulos de janela ou notificações.</li>
               </ul>
             </Cartao>
@@ -186,7 +187,7 @@ export function Seguranca() {
                 <ShieldAlert className="size-4" /> Não consegue proteger
               </h3>
               <ul className="space-y-2 text-[12.5px] leading-relaxed text-muted">
-                <li>Um computador com malware ou um registador de teclas: pode ver a senha mestra enquanto a escreves.</li>
+                <li>Um {aparelho()} com malware ou um registador de teclas: pode ver a senha mestra enquanto a escreves.</li>
                 <li>Uma sessão já desbloqueada: quem estiver ao teclado vê o que tu verias.</li>
                 <li>Outros programas podem ler a área de transferência antes de ela ser limpa.</li>
                 <li>Uma senha mestra fraca ou reutilizada noutro sítio.</li>

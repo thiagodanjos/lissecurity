@@ -20,6 +20,8 @@ import { Definicoes } from './Definicoes'
 import { Editor } from './Editor'
 import { Gastos } from './Gastos'
 import { Importar } from '@/componentes/importar'
+import { BotaoNovo, CabecalhoMovel, FolhaMais, NavegacaoMovel, PesquisaMovel } from '@/componentes/movel'
+import { useAndroid } from '@/lib/movel'
 
 const INTERVALO_ATIVIDADE_MS = 15_000
 
@@ -66,8 +68,10 @@ function Pagina({ pagina }: { pagina: Pagina }) {
   }
 }
 
-/** A janela desbloqueada: lateral à esquerda e o grande painel arredondado à direita. */
+/** A janela desbloqueada: lateral à esquerda e o grande painel arredondado à direita
+ *  (no Android: cabeçalho, a página e a navegação em baixo). */
 export function Shell() {
+  const android = useAndroid()
   const pagina = useSessao((s) => s.pagina)
   useAtividade()
   // preferências do cofre que a interface precisa de ter à mão
@@ -80,6 +84,7 @@ export function Shell() {
       })
       .catch(() => {})
   }, [])
+  if (android) return <ShellMovel pagina={pagina} />
   return (
     <div className="flex min-h-0 flex-1">
       <Lateral />
@@ -105,6 +110,42 @@ export function Shell() {
           </AnimatePresence>
         </motion.div>
       </main>
+      <Editor />
+      <Importar />
+    </div>
+  )
+}
+
+/** Android: ecrã inteiro. A página é a mesma do computador; muda a moldura à volta. */
+function ShellMovel({ pagina }: { pagina: Pagina }) {
+  const [mais, setMais] = useState(false)
+  const [pesquisa, setPesquisa] = useState(false)
+  const conteudo = useRef<HTMLDivElement>(null)
+  // cada secção abre no topo (o polegar não tem de subir o que a anterior deixou rolado)
+  useEffect(() => {
+    conteudo.current?.querySelectorAll<HTMLElement>('.overflow-y-auto').forEach((e) => (e.scrollTop = 0))
+  }, [pagina])
+  return (
+    <div className="flex min-h-0 flex-1 flex-col bg-bg">
+      <CabecalhoMovel aoPesquisar={() => setPesquisa(true)} />
+      <main ref={conteudo} className="relative flex min-h-0 flex-1 flex-col">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={pagina}
+            className="flex min-h-0 flex-1 flex-col"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <Pagina pagina={pagina} />
+          </motion.div>
+        </AnimatePresence>
+        <BotaoNovo />
+      </main>
+      <NavegacaoMovel aoAbrirMais={() => setMais(true)} />
+      <FolhaMais aberta={mais} aoFechar={() => setMais(false)} />
+      <PesquisaMovel aberta={pesquisa} aoFechar={() => setPesquisa(false)} />
       <Editor />
       <Importar />
     </div>
