@@ -42,9 +42,12 @@ confirma o **`FLAG_SECURE`** na janela, guarda uma senha pelo botão «+», veri
 ao início, manda a app para trás), confirma que **ao voltar à app o cofre está bloqueado**,
 recusa a senha errada, abre com a certa, **termina a app e volta a abri-la** para confirmar que o
 cofre ficou gravado, verifica que as definições não mostram opções do Windows e bloqueia à mão.
-No CI, o APK de teste é compilado num job e testado noutro, numa máquina limpa, em duas
-configurações da emulação gráfica (predefinida e só OpenGL ES); antes de instalar a app, o
-emulador fica 2 minutos parado, para separar um problema do emulador de um da app. Quando algo
+No CI, o APK de teste é compilado num job e testado noutro, numa máquina limpa; antes de
+instalar a app, o emulador fica 2 minutos parado, para separar um problema do emulador de um da
+app. Aí a WebView desenha sem GPU (`VARIANTE=teste_webview_software`, um interruptor que só
+existe no APK de teste): com a aceleração, a emulação gráfica do emulador (gfxstream) cai ao fim
+de ~1,5 min com esta app — com a app parada não cai, e sem GPU o teste corre até ao fim. Num
+telemóvel a WebView usa a GPU normalmente. Quando algo
 falha, o teste escreve no registo do CI os erros de JavaScript, as mensagens do navegador e o
 logcat da app; as capturas e o logcat completo ficam nos artefactos `capturas-android-*`.
 

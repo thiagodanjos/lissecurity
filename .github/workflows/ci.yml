@@ -180,23 +180,15 @@ jobs:
           if-no-files-found: error
 
   # O APK de teste numa máquina limpa (sem os daemons da compilação). Antes de instalar a app, o
-  # emulador fica 2 min parado: se morrer aí, o problema é dele. As variantes (só no APK de teste)
-  # isolam a emulação gráfica: sem FLAG_SECURE e com a WebView a desenhar sem GPU.
+  # emulador fica 2 min parado: se morrer aí, o problema é dele.
+  # A WebView desenha sem GPU (interruptor que só existe no APK de teste): com a aceleração, a
+  # emulação gráfica do emulador (gfxstream) cai ao fim de ~1,5 min com esta app; sem ela, o
+  # teste corre até ao fim. Num telemóvel a WebView usa a GPU normalmente.
   android-emulador:
-    name: Teste no emulador (${{ matrix.nome }})
+    name: Teste no emulador (Android 14)
     needs: android
     runs-on: ubuntu-24.04
     timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - nome: Android 14
-            variante: ""
-          - nome: Android 14, sem FLAG_SECURE
-            variante: teste_sem_flag_secure
-          - nome: Android 14, WebView em software
-            variante: teste_webview_software
     steps:
       - uses: actions/checkout@v5
         with:
@@ -217,7 +209,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         env:
           CAPTURAS: ${{ runner.temp }}/capturas-android
-          VARIANTE: ${{ matrix.variante }}
+          VARIANTE: teste_webview_software
         with:
           api-level: 34
           arch: x86_64
@@ -239,7 +231,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: capturas-android-${{ strategy.job-index }}
+          name: capturas-android
           path: ${{ runner.temp }}/capturas-android
           if-no-files-found: ignore
 

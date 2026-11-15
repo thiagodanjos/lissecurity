@@ -47,6 +47,23 @@ const tecla = (codigo) => shell('input', 'keyevent', String(codigo))
 const VOLTAR = 4
 const INICIO = 3
 
+/** O teclado do sistema está aberto? (o primeiro «voltar» fecha-o, como num telemóvel) */
+function tecladoAberto() {
+  try {
+    return /mInputShown=true|isInputViewShown=true/.test(shell('dumpsys', 'input_method'))
+  } catch {
+    return false
+  }
+}
+async function fecharTeclado() {
+  if (SIMULADOR) return
+  await js('document.activeElement && document.activeElement.blur && document.activeElement.blur()').catch(() => {})
+  for (let i = 0; i < 3 && tecladoAberto(); i++) {
+    tecla(VOLTAR)
+    await esperar(800)
+  }
+}
+
 /** O emulador ainda responde ao adb? */
 function dispositivoVivo() {
   try {
@@ -138,31 +155,41 @@ function resumirEvento(metodo, p) {
   return null
 }
 
-/** Escreve no registo do CI o que ajuda a perceber uma falha (o artefacto pode não estar à mão). */
+/** Escreve no registo do CI o que ajuda a perceber uma falha (o artefacto pode não estar à mão).
+ *  Primeiro o que vem do adb (o emulador pode não durar muito), depois a página. */
 async function diagnostico(titulo) {
   console.log(`   ── diagnóstico: ${titulo}`)
+  if (!SIMULADOR) {
+    try {
+      const foco = shell('dumpsys', 'window').split('\n').filter((l) => /mCurrentFocus|mFocusedApp/.test(l)).map((l) => l.trim())
+      console.log(`   janela com foco: ${foco.join(' | ')}`)
+    } catch {}
+    try {
+      const top = shell('top', '-b', '-n', '1', '-m', '8').split('\n').filter((l) => l.trim()).slice(0, 16)
+      console.log('   processos (top):')
+      for (const l of top) console.log(`   : ${l.slice(0, 200)}`)
+    } catch {}
+    try {
+      const pid = shell('pidof', PACOTE).trim()
+      const linhas = adb('logcat', '-d', '-t', '3000', '-v', 'brief')
+        .split('\n')
+        .filter((l) => (pid && l.includes(`(${pid.padStart(5)})`)) || /AndroidRuntime|FATAL|ANR in|lissecurity|Tauri|RustStdout|chromium|cr_|libc|DEBUG|gfxstream|EGL|OpenGLRenderer|lowmemorykiller|SurfaceFlinger/.test(l))
+      console.log(`   logcat (pid ${pid || '?'}, ${linhas.length} linhas relevantes, últimas 100):`)
+      for (const l of linhas.slice(-100)) console.log(`   | ${l.slice(0, 300)}`)
+    } catch (e) {
+      console.log(`   logcat indisponível: ${String(e?.message ?? e).slice(0, 120)}`)
+    }
+  }
   try {
-    const estado = await js(`JSON.stringify({ url: location.href, pronto: document.readyState, scripts: document.scripts.length, tauri: !!window.__TAURI_INTERNALS__, plataforma: document.documentElement.dataset.plataforma ?? null, raiz: document.getElementById('root')?.innerHTML.length ?? -1 })`)
+    const estado = await Promise.race([
+      js(`JSON.stringify({ url: location.href, pronto: document.readyState, scripts: document.scripts.length, tauri: !!window.__TAURI_INTERNALS__, ipc: !!window.ipc, plataforma: document.documentElement.dataset.plataforma ?? null, raiz: document.getElementById('root')?.innerHTML.length ?? -1 })`),
+      esperar(5000).then(() => 'sem resposta em 5 s'),
+    ])
     console.log(`   página: ${estado}`)
   } catch (e) {
-    console.log(`   página: sem resposta (${String(e?.message ?? e).slice(0, 120)})`)
+    console.log(`   página: ${String(e?.message ?? e).slice(0, 120)}`)
   }
   for (const e of cdp?.eventos ?? []) console.log(`   ${e}`)
-  if (SIMULADOR) return
-  try {
-    const foco = shell('dumpsys', 'window').split('\n').filter((l) => /mCurrentFocus|mFocusedApp/.test(l)).map((l) => l.trim())
-    console.log(`   janela com foco: ${foco.join(' | ')}`)
-  } catch {}
-  try {
-    const pid = shell('pidof', PACOTE).trim()
-    const linhas = adb('logcat', '-d', '-t', '3000', '-v', 'brief')
-      .split('\n')
-      .filter((l) => (pid && l.includes(`(${pid.padStart(5)})`)) || l.includes(`( ${pid})`) || /AndroidRuntime|FATAL|ANR in|lissecurity|Tauri|RustStdout|chromium|cr_|libc|DEBUG/.test(l))
-    console.log(`   logcat (pid ${pid || '?'}, ${linhas.length} linhas relevantes, últimas 80):`)
-    for (const l of linhas.slice(-80)) console.log(`   | ${l.slice(0, 300)}`)
-  } catch (e) {
-    console.log(`   logcat indisponível: ${String(e?.message ?? e).slice(0, 120)}`)
-  }
 }
 
 /** Liga-se ao WebView da app (Android) ou a um Chromium com o simulador. */
@@ -219,7 +246,7 @@ async function js(expressao) {
 const textoPagina = () => js('document.body.innerText')
 const html = () => js('document.documentElement.outerHTML')
 
-async function esperarTexto(texto, ms = 15_000) {
+async function esperarTexto(texto, ms = 25_000) {
   try {
     await esperarAte(async () => (await textoPagina()).includes(texto), ms, '')
   } catch {
@@ -265,8 +292,16 @@ async function tocarEm(seletorJs, descricao) {
     15_000,
     `não encontrei «${descricao}» (ou estava desativado)`,
   )
-  await esperar(120) // deixa o scroll assentar
-  pos = await js(`(() => { ${AJUDANTES} const r = (${seletorJs}).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`)
+  // toca só quando o elemento parou (scroll, folhas a subir, teclado a fechar): no emulador do CI
+  // a WebView desenha sem GPU e cada fotograma pode levar segundos
+  const medir = () => js(`(() => { ${AJUDANTES} const e = ${seletorJs}; if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`)
+  let anterior = null
+  for (let i = 0; i < 25; i++) {
+    await esperar(200)
+    pos = (await medir()) ?? pos
+    if (anterior && Math.abs(anterior.x - pos.x) < 1 && Math.abs(anterior.y - pos.y) < 1) break
+    anterior = pos
+  }
   await cdp.enviar('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: pos.x, y: pos.y }] })
   await esperar(40)
   await cdp.enviar('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
@@ -436,13 +471,14 @@ try {
     if (!(await js(`!!document.querySelector('h2') && [...document.querySelectorAll('h2')].some((h) => h.innerText.trim() === ${JSON.stringify(TITULO)})`))) {
       await tocar(TITULO)
     }
-    await esperarAte(async () => (await textoPagina()).includes('ines.teste'), 10_000, 'o detalhe não abriu')
+    await fecharTeclado()
+    await esperarAte(async () => (await textoPagina()).includes('ines.teste'), 20_000, 'o detalhe não abriu')
     assegurar(!(await html()).includes(SEGREDO), 'a senha apareceu no DOM sem ser revelada')
     await tocar('Revelar senha')
-    await esperarAte(async () => (await html()).includes(SEGREDO), 8000, 'revelar não mostrou a senha')
+    await esperarAte(async () => (await html()).includes(SEGREDO), 20_000, 'revelar não mostrou a senha')
     await captura('05-detalhe-revelado')
     await tocar('Ocultar senha')
-    await esperarAte(async () => !(await html()).includes(SEGREDO), 8000, 'ocultar não tirou a senha do DOM')
+    await esperarAte(async () => !(await html()).includes(SEGREDO), 20_000, 'ocultar não tirou a senha do DOM')
   })
 
   await passo('copiar a senha avisa quando a área de transferência é limpa', async () => {
@@ -453,12 +489,13 @@ try {
   await passo(
     'botão voltar: fecha o detalhe, volta ao início e manda a app para trás',
     async () => {
+      await fecharTeclado()
       tecla(VOLTAR)
-      await esperarAte(async () => !(await textoPagina()).includes('ines.teste'), 8000, 'o detalhe não fechou com o voltar')
+      await esperarAte(async () => !(await textoPagina()).includes('ines.teste'), 20_000, 'o detalhe não fechou com o voltar')
       tecla(VOLTAR)
-      await esperarTexto('Bem-vindo', 8000)
+      await esperarTexto('Bem-vindo', 20_000)
       tecla(VOLTAR)
-      await esperarAte(() => !emPrimeiroPlano(), 8000, 'a app não saiu da frente no ecrã inicial')
+      await esperarAte(() => !emPrimeiroPlano(), 20_000, 'a app não saiu da frente no ecrã inicial')
     },
     { soAndroid: true },
   )
@@ -468,7 +505,7 @@ try {
     async () => {
       shell('am', 'start', '-n', ATIVIDADE, ...EXTRAS)
       await ligar()
-      await esperarTexto('Bloqueado porque saíste da app', 15_000)
+      await esperarTexto('Bloqueado porque saíste da app', 25_000)
       assegurar(!(await html()).includes(TITULO), 'o nome de um registo ficou no ecrã bloqueado')
       await captura('06-bloqueado')
     },
