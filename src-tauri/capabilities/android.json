@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/android-schema.json",
+  "identifier": "android",
+  "description": "Android: a interface ouve o botão voltar do sistema (para fechar painéis e voltar ao ecrã anterior em vez de sair). Mais nada: ficheiros, área de transferência e biometria passam pelos comandos do Rust.",
+  "platforms": ["android"],
+  "windows": ["principal"],
+  "permissions": [
+    "core:app:allow-register-listener",
+    "core:app:allow-remove-listener"
+  ]
+}

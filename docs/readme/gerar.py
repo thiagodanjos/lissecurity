@@ -230,7 +230,7 @@ def banner() -> str:
     p.append(f'<g mask="url(#mascaraChuva)">{chuva_cifrada(520, 880, TB, H, 18, 3)}</g>')
 
     # coluna da esquerda
-    kick = "COFRE PESSOAL PARA WINDOWS"
+    kick = "COFRE PESSOAL PARA WINDOWS E ANDROID"
     wk = FONTE.largura(kick, 9.5, 800, 1.8) + 34
     p.append(
         '<g style="animation:surgir .8s cubic-bezier(.22,1,.36,1) .1s both">'
@@ -247,7 +247,7 @@ def banner() -> str:
     p.append(
         '<g style="animation:surgir .9s cubic-bezier(.22,1,.36,1) .35s both">'
         + texto(48, 206, "As tuas senhas, contas bancárias e cartões,", 17, 500, "#d2d9e0")
-        + texto(48, 230, "cifrados no teu PC. Sem conta e sem internet.", 17, 500, "#d2d9e0")
+        + texto(48, 230, "cifrados no PC e no Android. Sem conta e sem internet.", 17, 500, "#d2d9e0")
         + "</g>"
     )
     x = 48
@@ -262,7 +262,7 @@ def banner() -> str:
         + icone("wifi-off", 48, 318, 14, C["tenue"], 2.2)
         + texto(68, 329.5, "Funciona sem internet", 11.5, 500, C["tenue"])
         + icone("hard-drive", 212, 318, 14, C["tenue"], 2.2)
-        + texto(232, 329.5, "Tudo fica no teu computador", 11.5, 500, C["tenue"])
+        + texto(232, 329.5, "Tudo fica no teu aparelho", 11.5, 500, C["tenue"])
         + "</g>"
     )
 
@@ -347,7 +347,7 @@ def banner() -> str:
         W,
         H,
         "LisSecurity",
-        "LisSecurity: cofre pessoal para Windows. As tuas senhas, contas bancárias e cartões, cifrados no teu PC, "
+        "LisSecurity: cofre pessoal para Windows e Android. As tuas senhas, contas bancárias e cartões, cifrados no teu aparelho, "
         "sem conta e sem internet. Animação de um ecrã de desbloqueio.",
         "".join(css),
         corpo,
@@ -368,7 +368,7 @@ FUNCOES = [
     ("cloud-upload", "Cópias no Google Drive", "automáticas e cifradas"),
     ("chart-pie", "Gastos", "a partir de extratos (Revolut, CSV)"),
     ("file-down", "Importar senhas", "Chrome, Edge, Firefox, Bitwarden…"),
-    ("lock-keyhole", "Bloqueio automático", "inatividade, minimizar, Win+L"),
+    ("lock-keyhole", "Bloqueio automático", "inatividade, Win+L, sair da app"),
     ("clipboard-check", "Área de transferência", "limpa-se sozinha"),
 ]
 

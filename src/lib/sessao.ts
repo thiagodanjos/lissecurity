@@ -70,6 +70,8 @@ interface Sessao {
   /** segundos até um valor revelado voltar a ficar oculto (definição do cofre) */
   ocultarSegundos: number
   importarAberto: 'senhas' | 'extrato' | null
+  /** telemóvel: o detalhe de um registo está aberto por cima da lista (esconde o botão «+») */
+  detalheAberto: boolean
 
   carregar: (e: EstadoApp) => void
   /** Limpa já o ecrã (síncrono) — antes de qualquer animação ou pedido. */
@@ -88,6 +90,7 @@ interface Sessao {
   definirBloquearAoMinimizar: (v: boolean) => void
   definirOcultarSegundos: (v: number) => void
   abrirImportar: (q: 'senhas' | 'extrato' | null) => void
+  definirDetalheAberto: (v: boolean) => void
 }
 
 const ultimaPorArea: Record<Area, Pagina> = { cofre: 'inicio', financeiro: 'financeiro' }
@@ -108,6 +111,7 @@ export const useSessao = create<Sessao>((set, get) => ({
   versao: 0,
   ocultarSegundos: 30,
   importarAberto: null,
+  detalheAberto: false,
 
   carregar: (e) => {
     const antes = get().fase
@@ -179,4 +183,5 @@ export const useSessao = create<Sessao>((set, get) => ({
   definirBloquearAoMinimizar: (bloquearAoMinimizar) => set({ bloquearAoMinimizar }),
   definirOcultarSegundos: (ocultarSegundos) => set({ ocultarSegundos }),
   abrirImportar: (importarAberto) => set({ importarAberto, paletaAberta: false }),
+  definirDetalheAberto: (detalheAberto) => set({ detalheAberto }),
 }))

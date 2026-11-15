@@ -1,6 +1,5 @@
 //! Comandos de importação (senhas e extratos), gastos e cópias automáticas.
 
-use std::path::{Path, PathBuf};
 
 use lissecurity_core::financas::{self, Mensal, Recorrente, ResumoMes};
 use lissecurity_core::importacao;
@@ -8,11 +7,11 @@ use lissecurity_core::modelo::{ConfigCopias, Movimento};
 use lissecurity_core::vista::normalizar;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
-use tauri_plugin_dialog::DialogExt;
 use zeroize::Zeroizing;
 
 use crate::copias::{self, CopiaEncontrada, CopiaFeita, PastaNuvem};
 use crate::estado::{trancar, ErroUi, Estado, R};
+use crate::plataforma::{self, Tipo};
 
 const MAX_CSV: u64 = 50 * 1024 * 1024;
 
@@ -22,49 +21,39 @@ async fn em_segundo_plano<T: Send + 'static>(f: impl FnOnce() -> R<T> + Send + '
 
 // ───────────────────────────── ficheiros escolhidos ─────────────────────────────
 
-/// Janela "abrir ficheiro" para CSV. O caminho fica registado como escolhido pela pessoa.
+/// Janela "abrir ficheiro" para CSV. O ficheiro fica registado como escolhido pela pessoa.
 #[tauri::command]
-pub async fn escolher_csv(app: AppHandle, titulo: String) -> R<Option<String>> {
+pub async fn escolher_csv(app: AppHandle, titulo: String) -> R<Option<plataforma::Escolhido>> {
     if !app.state::<Estado>().desbloqueado() {
         return Err(ErroUi::bloqueado());
     }
     let app2 = app.clone();
     em_segundo_plano(move || {
         let titulo: String = titulo.chars().take(80).collect();
-        let f = app2.dialog().file().set_title(titulo).add_filter("Ficheiro CSV", &["csv", "txt"]).blocking_pick_file();
-        let Some(p) = f.and_then(|f| f.into_path().ok()) else { return Ok(None) };
-        trancar(&app2.state::<Estado>().escolhidos).insert(p.clone());
-        Ok(Some(p.display().to_string()))
+        plataforma::escolher_ficheiro(&app2, &titulo, Tipo::Csv)
     })
     .await
 }
 
 fn ler_escolhido(app: &AppHandle, caminho: &str) -> R<Zeroizing<String>> {
-    let p = PathBuf::from(caminho);
-    if !trancar(&app.state::<Estado>().escolhidos).contains(&p) {
-        return Err(ErroUi::novo("invalido", "Escolhe o ficheiro outra vez."));
-    }
-    let meta = std::fs::metadata(&p).map_err(|_| ErroUi::novo("io", "O ficheiro já não existe."))?;
-    if meta.len() > MAX_CSV {
-        return Err(ErroUi::novo("invalido", "O ficheiro é demasiado grande (máximo 50 MB)."));
-    }
-    let bytes = Zeroizing::new(std::fs::read(&p).map_err(|_| ErroUi::novo("io", "Não foi possível ler o ficheiro."))?);
+    let bytes = plataforma::ler_escolhido(app, caminho, MAX_CSV)?;
     Ok(Zeroizing::new(String::from_utf8_lossy(&bytes).into_owned()))
 }
 
 /// Apaga um CSV que a pessoa escolheu para importar (tem senhas em texto simples).
 #[tauri::command]
 pub async fn apagar_ficheiro_importado(app: AppHandle, caminho: String) -> R<()> {
-    let p = PathBuf::from(&caminho);
-    let estado = app.state::<Estado>();
-    let mut escolhidos = trancar(&estado.escolhidos);
-    let csv = p.extension().map(|e| e.eq_ignore_ascii_case("csv") || e.eq_ignore_ascii_case("txt")).unwrap_or(false);
-    if !escolhidos.contains(&p) || !csv {
-        return Err(ErroUi::novo("invalido", "Só se apagam ficheiros CSV escolhidos para importar."));
+    // no computador confirma-se a extensão; no Android o URI não a tem, mas o documento
+    // só pode ter vindo do seletor de CSV desta sessão
+    #[cfg(desktop)]
+    {
+        let p = std::path::Path::new(&caminho);
+        let csv = p.extension().map(|e| e.eq_ignore_ascii_case("csv") || e.eq_ignore_ascii_case("txt")).unwrap_or(false);
+        if !csv {
+            return Err(ErroUi::novo("invalido", "Só se apagam ficheiros CSV escolhidos para importar."));
+        }
     }
-    std::fs::remove_file(&p).map_err(|_| ErroUi::novo("io", "Não foi possível apagar o ficheiro."))?;
-    escolhidos.remove(&p);
-    Ok(())
+    em_segundo_plano(move || plataforma::apagar_escolhido(&app, &caminho)).await
 }
 
 // ───────────────────────────── importar senhas ─────────────────────────────
@@ -232,19 +221,20 @@ pub async fn pastas_nuvem() -> R<Vec<PastaNuvem>> {
     em_segundo_plano(|| Ok(copias::pastas_nuvem())).await
 }
 
+/// Escolher a pasta das cópias automáticas. Devolve o caminho (computador) ou o URI da pasta
+/// com permissão de escrita guardada (Android).
 #[tauri::command]
 pub async fn escolher_pasta(app: AppHandle, titulo: String) -> R<Option<String>> {
     em_segundo_plano(move || {
         let titulo: String = titulo.chars().take(80).collect();
-        let p = app.dialog().file().set_title(titulo).blocking_pick_folder();
-        Ok(p.and_then(|p| p.into_path().ok()).map(|p| p.display().to_string()))
+        copias::escolher_pasta(&app, &titulo)
     })
     .await
 }
 
 #[tauri::command]
-pub async fn listar_copias(pasta: String) -> R<Vec<CopiaEncontrada>> {
-    em_segundo_plano(move || Ok(copias::listar(Path::new(&pasta)))).await
+pub async fn listar_copias(app: AppHandle, pasta: String) -> R<Vec<CopiaEncontrada>> {
+    em_segundo_plano(move || Ok(copias::listar(&app, &pasta))).await
 }
 
 #[derive(Serialize)]
@@ -252,6 +242,9 @@ pub async fn listar_copias(pasta: String) -> R<Vec<CopiaEncontrada>> {
 pub struct EstadoCopias {
     config: ConfigCopias,
     destino: Option<String>,
+    /// a pasta guardada no cofre é de outro aparelho (um caminho do Windows num telemóvel ou
+    /// o contrário): as cópias automáticas só voltam com uma pasta escolhida aqui
+    noutro_aparelho: bool,
     ultima_automatica: Option<i64>,
     ultimo_erro: Option<String>,
     ultima_manual: Option<i64>,
@@ -261,13 +254,14 @@ pub struct EstadoCopias {
 fn estado_copias_de(app: &AppHandle) -> R<EstadoCopias> {
     let estado = app.state::<Estado>();
     let (config, ultima_manual) = estado.ler(|s| Ok((s.cofre.dados.copias.clone(), s.cofre.dados.ultimo_backup)))?;
-    let destino = (!config.pasta.is_empty()).then(|| copias::destino(&config.pasta));
-    let encontradas = destino.as_ref().map(|d| copias::listar(d)).unwrap_or_default();
+    let destino = copias::pasta_deste_aparelho(&config.pasta).then(|| copias::destino(app, &config.pasta));
+    let encontradas = copias::listar(app, &config.pasta); // vazio se a pasta for de outro aparelho
     let ultima_ficheiro = encontradas.iter().filter(|c| c.automatica).map(|c| c.modificado).max();
     let ultimo_ok = *trancar(&estado.copia_auto.ultimo_ok);
     let ultimo_erro = trancar(&estado.copia_auto.ultimo_erro).clone();
     Ok(EstadoCopias {
-        destino: destino.map(|d| d.display().to_string()),
+        destino,
+        noutro_aparelho: !config.pasta.is_empty() && !copias::pasta_deste_aparelho(&config.pasta),
         ultima_automatica: ultimo_ok.max(ultima_ficheiro),
         ultimo_erro,
         ultima_manual,
@@ -286,10 +280,7 @@ pub async fn configurar_copias(app: AppHandle, ativo: bool, pasta: String, mante
     em_segundo_plano(move || {
         let pasta = pasta.trim().to_string();
         if ativo {
-            if pasta.is_empty() || !Path::new(&pasta).is_absolute() || !Path::new(&pasta).is_dir() {
-                return Err(ErroUi::novo("invalido", "Escolhe uma pasta que exista (por exemplo, a do Google Drive)."));
-            }
-            std::fs::create_dir_all(copias::destino(&pasta)).map_err(|_| ErroUi::novo("io", "Não foi possível escrever nessa pasta."))?;
+            copias::validar_pasta(&app, &pasta)?;
         }
         let estado = app.state::<Estado>();
         estado.mutar(|d, _| {

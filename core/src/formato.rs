@@ -103,6 +103,12 @@ impl Cabecalho {
     }
 }
 
+/// O id aleatório do cofre, lido do cabeçalho sem decifrar nada (não é secreto). Serve para
+/// o aparelho saber se a chave que guardou para o desbloqueio biométrico é deste cofre.
+pub fn id_do_cofre(b: &[u8]) -> Resultado<[u8; 16]> {
+    Ok(FicheiroCofre::ler(b)?.cabecalho.id_cofre)
+}
+
 /// O ficheiro completo, ainda cifrado.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FicheiroCofre {

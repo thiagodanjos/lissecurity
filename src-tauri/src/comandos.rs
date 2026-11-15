@@ -2,11 +2,11 @@
 //! (nada de "ler ficheiro", "executar", "abrir URL qualquer"): cada comando faz uma operação
 //! do cofre concreta, valida os argumentos e devolve só o necessário para o ecrã atual.
 
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use lissecurity_core::analise::{self, Forca};
-use lissecurity_core::armazenamento::{self, ler_limitado};
+#[cfg(desktop)]
+use lissecurity_core::armazenamento;
 use lissecurity_core::cofre::{validar_senha_nova, Aberto, CofreAberto};
 use lissecurity_core::cripto;
 use lissecurity_core::gerador::{self, OpcoesFrase, OpcoesSenha};
@@ -16,21 +16,37 @@ use lissecurity_core::{agora_ms, Erro};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager, WebviewWindow};
-use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_opener::OpenerExt;
 use zeroize::Zeroizing;
 
 use crate::config::ConfigApp;
 use crate::estado::{bloquear, trancar, ErroUi, Estado, Sessao, R};
+use crate::plataforma::{self, Tipo};
+
+/// Maior cópia de segurança que se aceita ler no Android (os bytes atravessam a camada
+/// Kotlin; no computador vale o limite do núcleo, 256 MiB).
+#[cfg(mobile)]
+const MAX_COPIA: u64 = 128 * 1024 * 1024;
+
+/// Plataforma, para a interface escolher a disposição (janela com barra de título no
+/// computador, ecrã inteiro com navegação em baixo no Android).
+const PLATAFORMA: &str = if cfg!(target_os = "android") {
+    "android"
+} else if cfg!(target_os = "windows") {
+    "windows"
+} else if cfg!(target_os = "macos") {
+    "macos"
+} else {
+    "linux"
+};
 
 /// Quanto deve demorar a derivação da senha mestra neste computador.
 const ALVO_KDF: Duration = Duration::from_millis(750);
 
-fn ocupado() -> ErroUi {
+pub(crate) fn ocupado() -> ErroUi {
     ErroUi::novo("ocupado", "Já há uma operação do cofre em curso. Aguarda um momento.")
 }
 
-async fn em_segundo_plano<T: Send + 'static>(f: impl FnOnce() -> R<T> + Send + 'static) -> R<T> {
+pub(crate) async fn em_segundo_plano<T: Send + 'static>(f: impl FnOnce() -> R<T> + Send + 'static) -> R<T> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(|_| ErroUi::novo("sistema", "A operação foi interrompida."))?
 }
 
@@ -54,6 +70,7 @@ pub struct EstadoApp {
     geracao: u64,
     /// política de bloqueio ao minimizar (para a interface esconder tudo ANTES de minimizar)
     bloquear_ao_minimizar: bool,
+    plataforma: &'static str,
 }
 
 #[tauri::command]
@@ -77,7 +94,32 @@ pub async fn estado_app(app: AppHandle) -> R<EstadoApp> {
         caminho_cofre,
         geracao: e.geracao(),
         bloquear_ao_minimizar,
+        plataforma: PLATAFORMA,
     })
+}
+
+/// Android: o botão voltar no primeiro ecrã manda a app para trás (como o botão de início),
+/// em vez de a fechar — e sair da app bloqueia, se essa política estiver ligada.
+#[tauri::command]
+pub async fn para_segundo_plano(app: AppHandle) -> R<()> {
+    #[cfg(target_os = "android")]
+    crate::nativo::para_segundo_plano(&app);
+    #[cfg(desktop)]
+    let _ = app;
+    Ok(())
+}
+
+/// Android: margens do sistema (barra de estado, navegação, teclado) em píxeis CSS, para a
+/// interface não ficar por baixo delas. A camada Kotlin também as envia quando mudam.
+#[tauri::command]
+pub async fn margens_sistema(app: AppHandle) -> R<serde_json::Value> {
+    #[cfg(target_os = "android")]
+    return Ok(serde_json::to_value(crate::nativo::margens(&app)).unwrap_or_default());
+    #[cfg(desktop)]
+    {
+        let _ = app;
+        Ok(serde_json::json!({ "topo": 0, "direita": 0, "baixo": 0, "esquerda": 0, "teclado": 0 }))
+    }
 }
 
 #[tauri::command]
@@ -92,13 +134,17 @@ pub async fn janela_minimizar(app: AppHandle, janela: WebviewWindow) -> R<()> {
     if app.state::<Estado>().politicas().is_some_and(|d| d.bloquear_ao_minimizar) {
         bloquear(&app, "minimizar");
     }
+    #[cfg(desktop)]
     let _ = janela.minimize();
+    #[cfg(mobile)]
+    let _ = janela;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn janela_alternar_maximizar(janela: WebviewWindow) -> R<bool> {
     let max = janela.is_maximized().unwrap_or(false);
+    #[cfg(desktop)]
     let _ = if max { janela.unmaximize() } else { janela.maximize() };
     Ok(!max)
 }
@@ -165,7 +211,7 @@ pub async fn criar_cofre(
     .await
 }
 
-fn abrir_com_reposicao(app: &AppHandle, abrir: impl Fn(&[u8]) -> Result<Aberto, Erro>) -> R<(Aberto, bool)> {
+pub(crate) fn abrir_com_reposicao(app: &AppHandle, abrir: impl Fn(&[u8]) -> Result<Aberto, Erro>) -> R<(Aberto, bool)> {
     let e = app.state::<Estado>();
     let a = trancar(&e.armazenamento);
     let a = a.as_ref().ok_or_else(|| ErroUi::novo("io", "O local do cofre não está disponível."))?;
@@ -182,7 +228,7 @@ fn abrir_com_reposicao(app: &AppHandle, abrir: impl Fn(&[u8]) -> Result<Aberto, 
     }
 }
 
-fn concluir_abertura(app: &AppHandle, g0: u64, aberto: Aberto, via_recuperacao: bool, recuperado_anterior: bool) -> R<Desbloqueio> {
+pub(crate) fn concluir_abertura(app: &AppHandle, g0: u64, aberto: Aberto, via_recuperacao: bool, recuperado_anterior: bool) -> R<Desbloqueio> {
     let e = app.state::<Estado>();
     let Aberto { mut cofre, migrado } = aberto;
     let removidos = cofre.dados.limpar_lixo_antigo(agora_ms());
@@ -281,6 +327,7 @@ pub async fn alterar_senha(app: AppHandle, atual: Option<Zeroizing<String>>, nov
         let params = cripto::calibrar(ALVO_KDF)?;
         let (mut novo, recuperacao) = s.cofre.com_nova_senha(&nova, params)?;
         estado.gravar(&mut novo)?;
+        crate::biometria::renovar(&app2, &novo);
         s.cofre = novo;
         s.via_recuperacao = false;
         estado.tocar();
@@ -300,6 +347,7 @@ pub async fn ativar_recuperacao(app: AppHandle, senha: Zeroizing<String>) -> R<S
         let s = g.as_mut().ok_or_else(ErroUi::bloqueado)?;
         let (mut novo, texto) = s.cofre.com_recuperacao_nova(&senha)?;
         estado.gravar(&mut novo)?;
+        crate::biometria::renovar(&app2, &novo);
         s.cofre = novo;
         Ok(texto.to_string())
     })
@@ -317,6 +365,7 @@ pub async fn desativar_recuperacao(app: AppHandle, senha: Zeroizing<String>) -> 
         let s = g.as_mut().ok_or_else(ErroUi::bloqueado)?;
         let mut novo = s.cofre.sem_recuperacao(&senha)?;
         estado.gravar(&mut novo)?;
+        crate::biometria::renovar(&app2, &novo);
         s.cofre = novo;
         Ok(())
     })
@@ -496,6 +545,7 @@ pub async fn reforcar_protecao(app: AppHandle, senha: Zeroizing<String>, nivel: 
         let params = cripto::calibrar_com(alvo, memoria)?;
         let (mut novo, recuperacao) = s.cofre.com_novos_parametros(&senha, params)?;
         estado.gravar(&mut novo)?;
+        crate::biometria::renovar(&app2, &novo);
         s.cofre = novo;
         estado.tocar();
         Ok(recuperacao.map(|t| t.to_string()))
@@ -557,7 +607,7 @@ pub async fn abrir_endereco(app: AppHandle, id: String) -> R<()> {
         _ => Err(ErroUi::novo("invalido", "Este registo não tem endereço.")),
     })?;
     let url = endereco_seguro(&url).ok_or_else(|| ErroUi::novo("invalido", "Só se abrem endereços web (http ou https)."))?;
-    app.opener().open_url(url, None::<&str>).map_err(|_| ErroUi::novo("sistema", "Não foi possível abrir o navegador."))
+    plataforma::abrir_endereco(&app, &url)
 }
 
 #[derive(Serialize)]
@@ -724,18 +774,29 @@ pub async fn guardar_config(app: AppHandle, config: ConfigApp) -> R<ConfigApp> {
     let mut nova = config.normalizada();
     let anterior = trancar(&e.config).clone();
     nova.caminho_cofre = anterior.caminho_cofre.clone(); // o local muda-se por outro caminho
-    if nova.iniciar_com_sistema != anterior.iniciar_com_sistema {
-        use tauri_plugin_autostart::ManagerExt;
-        let al = app.autolaunch();
-        let r = if nova.iniciar_com_sistema { al.enable() } else { al.disable() };
-        r.map_err(|_| ErroUi::novo("sistema", "O sistema não permitiu alterar o arranque automático."))?;
-    }
-    if let Some(j) = app.get_webview_window("principal") {
-        if nova.proteger_captura != anterior.proteger_captura {
-            let _ = j.set_content_protected(nova.proteger_captura);
+    #[cfg(desktop)]
+    {
+        if nova.iniciar_com_sistema != anterior.iniciar_com_sistema {
+            use tauri_plugin_autostart::ManagerExt;
+            let al = app.autolaunch();
+            let r = if nova.iniciar_com_sistema { al.enable() } else { al.disable() };
+            r.map_err(|_| ErroUi::novo("sistema", "O sistema não permitiu alterar o arranque automático."))?;
         }
-        if (nova.zoom - anterior.zoom).abs() > f64::EPSILON {
-            let _ = j.set_zoom(nova.zoom);
+        if let Some(j) = app.get_webview_window("principal") {
+            if nova.proteger_captura != anterior.proteger_captura {
+                let _ = j.set_content_protected(nova.proteger_captura);
+            }
+            if (nova.zoom - anterior.zoom).abs() > f64::EPSILON {
+                let _ = j.set_zoom(nova.zoom);
+            }
+        }
+    }
+    // no Android não há arranque com o sistema; o zoom aplica-se na interface (CSS)
+    #[cfg(target_os = "android")]
+    {
+        nova.iniciar_com_sistema = false;
+        if nova.proteger_captura != anterior.proteger_captura {
+            crate::nativo::definir_protecao_ecra(&app, nova.proteger_captura);
         }
     }
     nova.gravar(&e.caminho_config).map_err(|_| ErroUi::novo("io", "Não foi possível gravar as preferências."))?;
@@ -748,8 +809,15 @@ pub async fn abrir_pasta_cofre(app: AppHandle) -> R<()> {
     if !app.state::<Estado>().desbloqueado() {
         return Err(ErroUi::bloqueado());
     }
-    let caminho = trancar(&app.state::<Estado>().caminho_cofre).clone();
-    app.opener().reveal_item_in_dir(caminho).map_err(|_| ErroUi::novo("sistema", "Não foi possível abrir a pasta."))
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        let caminho = trancar(&app.state::<Estado>().caminho_cofre).clone();
+        app.opener().reveal_item_in_dir(caminho).map_err(|_| ErroUi::novo("sistema", "Não foi possível abrir a pasta."))
+    }
+    // no Android o cofre vive na área privada da app, que outras apps não veem
+    #[cfg(mobile)]
+    Err(ErroUi::novo("invalido", "No Android o cofre fica na área privada da app. Para o levar para outro sítio, faz uma cópia de segurança."))
 }
 
 // ───────────────────────────── cópias de segurança ─────────────────────────────
@@ -763,18 +831,10 @@ pub struct CopiaCriada {
     bytes: usize,
 }
 
-fn caminho_livre(pasta: &Path, base: &str) -> PathBuf {
-    let mut p = pasta.join(format!("{base}.lissec"));
-    let mut n = 2;
-    while p.exists() {
-        p = pasta.join(format!("{base}-{n}.lissec"));
-        n += 1;
-    }
-    p
-}
-
-/// Pede a pasta, grava uma cópia cifrada (o mesmo formato do cofre, abre com a senha mestra
-/// atual ou com a chave de recuperação atual), relê-a e verifica-a.
+/// Pede onde gravar (pasta no computador, «Guardar como…» no Android, que inclui o Google
+/// Drive), grava uma cópia cifrada (o mesmo formato do cofre, abre com a senha mestra atual ou
+/// com a chave de recuperação atual), relê-a e verifica-a. O cofre só fica trancado durante a
+/// escrita, nunca enquanto a pessoa está no seletor.
 #[tauri::command]
 pub async fn criar_copia(app: AppHandle) -> R<Option<CopiaCriada>> {
     if !app.state::<Estado>().desbloqueado() {
@@ -782,46 +842,77 @@ pub async fn criar_copia(app: AppHandle) -> R<Option<CopiaCriada>> {
     }
     let app2 = app.clone();
     em_segundo_plano(move || {
-        let Some(pasta) = app2.dialog().file().set_title("Escolhe a pasta para a cópia de segurança").blocking_pick_folder() else {
+        let estado = app2.state::<Estado>();
+        let g0 = estado.geracao();
+        let base = format!("LisSecurity-copia-{}", data_ficheiro(agora_ms()));
+        let Some(destino) = plataforma::escolher_destino_copia(&app2, &base)? else {
             return Ok(None);
         };
-        let pasta = pasta.into_path().map_err(|_| ErroUi::novo("invalido", "Pasta inválida."))?;
-        let estado = app2.state::<Estado>();
         let agora = agora_ms();
-        let destino = caminho_livre(&pasta, &format!("LisSecurity-copia-{}", data_ficheiro(agora)));
-        let bytes = {
+        let (feito, bytes) = {
             let mut g = trancar(&estado.sessao);
             let s = g.as_mut().ok_or_else(ErroUi::bloqueado)?;
+            if estado.geracao() != g0 {
+                return Err(ErroUi::bloqueado());
+            }
             let bytes = s.cofre.serializar(agora)?;
-            armazenamento::escrever_atomico(&destino, &bytes, |b| s.cofre.verificar_gravado(b))?;
-            bytes.len()
+            let feito = plataforma::escrever_copia(&app2, &destino, &base, &bytes, &|b| s.cofre.verificar_gravado(b))?;
+            (feito, bytes.len())
         };
         estado.mutar(|d, _| {
             d.ultimo_backup = Some(agora);
             Ok(())
         })?;
-        Ok(Some(CopiaCriada {
-            nome: destino.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
-            caminho: destino.display().to_string(),
-            em: agora,
-            bytes,
-        }))
+        Ok(Some(CopiaCriada { nome: feito.nome, caminho: feito.id, em: agora, bytes }))
+    })
+    .await
+}
+
+/// Android: a folha de partilha do sistema com uma cópia cifrada acabada de fazer (para a
+/// enviar para o Google Drive, por e-mail, para outra app). O ficheiro partilhado é o mesmo
+/// formato do cofre: sem a senha mestra ou a chave de recuperação não se lê.
+#[tauri::command]
+pub async fn partilhar_copia(app: AppHandle) -> R<()> {
+    if !app.state::<Estado>().desbloqueado() {
+        return Err(ErroUi::bloqueado());
+    }
+    let app2 = app.clone();
+    em_segundo_plano(move || {
+        let estado = app2.state::<Estado>();
+        let agora = agora_ms();
+        let bytes = {
+            let mut g = trancar(&estado.sessao);
+            let s = g.as_mut().ok_or_else(ErroUi::bloqueado)?;
+            let bytes = s.cofre.serializar(agora)?;
+            s.cofre.verificar_gravado(&bytes)?;
+            bytes
+        };
+        #[cfg(target_os = "android")]
+        return crate::nativo::partilhar(&app2, &format!("LisSecurity-copia-{}.lissec", data_ficheiro(agora)), &bytes);
+        #[cfg(desktop)]
+        {
+            let _ = bytes;
+            Err(ErroUi::novo("invalido", "No computador, usa «Criar cópia agora»."))
+        }
     })
     .await
 }
 
 #[tauri::command]
-pub async fn escolher_copia(app: AppHandle) -> R<Option<String>> {
-    em_segundo_plano(move || {
-        let f = app
-            .dialog()
-            .file()
-            .set_title("Escolhe a cópia de segurança")
-            .add_filter("Cópia do LisSecurity", &["lissec"])
-            .blocking_pick_file();
-        Ok(f.and_then(|f| f.into_path().ok()).map(|p| p.display().to_string()))
-    })
-    .await
+pub async fn escolher_copia(app: AppHandle) -> R<Option<plataforma::Escolhido>> {
+    em_segundo_plano(move || plataforma::escolher_ficheiro(&app, "Escolhe a cópia de segurança", Tipo::Copia)).await
+}
+
+/// Lê uma cópia de segurança. No computador, um caminho (escolhido na janela de ficheiros ou
+/// listado da pasta das cópias); no Android, só um documento escolhido ou listado nesta sessão.
+fn ler_copia(app: &AppHandle, caminho: &str) -> R<Zeroizing<Vec<u8>>> {
+    #[cfg(desktop)]
+    {
+        let _ = app;
+        Ok(Zeroizing::new(armazenamento::ler_limitado(std::path::Path::new(caminho))?))
+    }
+    #[cfg(mobile)]
+    plataforma::ler_escolhido(app, caminho, MAX_COPIA)
 }
 
 #[derive(Serialize)]
@@ -863,7 +954,7 @@ pub async fn testar_copia(app: AppHandle, caminho: String, senha: Zeroizing<Stri
     let _g = e.operacao_longa.tentar().ok_or_else(ocupado)?;
     let app2 = app.clone();
     em_segundo_plano(move || {
-        let bytes = ler_limitado(Path::new(&caminho))?;
+        let bytes = ler_copia(&app2, &caminho)?;
         let a = CofreAberto::abrir_com_senha(&bytes, &senha)?;
         Ok(info_copia(&app2, &a))
     })
@@ -892,7 +983,7 @@ pub async fn restaurar_copia(
             let s = g.as_ref().ok_or_else(ErroUi::bloqueado)?;
             s.cofre.verificar_senha(&atual)?;
         }
-        let bytes = ler_limitado(Path::new(&caminho))?;
+        let bytes = ler_copia(&app2, &caminho)?;
         let aberto = CofreAberto::abrir_com_senha(&bytes, &senha)?;
         let info = info_copia(&app2, &aberto);
         {
@@ -912,6 +1003,9 @@ pub async fn restaurar_copia(
             estado.geracao.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
         };
         concluir_abertura(&app2, g1, aberto, false, false)?;
+        if let Some(s) = trancar(&estado.sessao).as_ref() {
+            crate::biometria::renovar(&app2, &s.cofre);
+        }
         Ok(info)
     })
     .await

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ícone temático do Android 13+: o símbolo numa só cor (design/icone.svg) na zona segura do ícone adaptável (108×108). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+  <group android:scaleX="0.26214" android:scaleY="0.26214" android:translateX="-8.6505" android:translateY="-13.1068">
+    <!-- brilho discreto atrás da fechadura -->
+    <path android:fillColor="#00000000" android:pathData="M120,230a50,50 0 1,0 100,0a50,50 0 1,0 -100,0"/>
+    <!-- a fechadura (o ponto da marca Lis transformado) -->
+    <path android:fillColor="#FF000000" android:pathData="M136,230a34,34 0 1,0 68,0a34,34 0 1,0 -68,0"/>
+    <path android:fillColor="#FF000000" android:pathData="M158,250 L149,326 Q148,336 158,336 L182,336 Q192,336 191,326 L182,250 Z"/>
+    <!-- as duas barras da família Lis -->
+    <path android:fillColor="#FF000000" android:pathData="M262,160 a16,16 0 0 1 16,16 v160 a16,16 0 0 1 -32,0 v-160 a16,16 0 0 1 16,-16 z"/>
+    <path android:fillColor="#FF000000" android:pathData="M326,160 a16,16 0 0 1 16,16 v160 a16,16 0 0 1 -32,0 v-160 a16,16 0 0 1 16,-16 z"/>
+  </group>
+</vector>

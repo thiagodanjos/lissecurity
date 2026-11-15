@@ -44,7 +44,7 @@ export function Financeiro() {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-6xl space-y-10 px-8 py-8">
+      <div className="mx-auto max-w-6xl space-y-8 px-4 pb-8 pt-5 sm:space-y-10 sm:px-8 sm:py-8 espaco-fab">
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
           <h1 className="text-3xl font-extrabold tracking-tight">
             Resumo <span className="text-brand-gradient">financeiro</span>

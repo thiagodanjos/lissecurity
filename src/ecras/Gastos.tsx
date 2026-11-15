@@ -64,7 +64,7 @@ export function Gastos() {
   if (dados.totalMovimentos === 0) {
     return (
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-8 py-10">
+        <div className="mx-auto max-w-3xl px-4 py-8 sm:px-8 sm:py-10">
           <h1 className="text-3xl font-extrabold tracking-tight">
             Os teus <span className="text-brand-gradient">gastos</span>
           </h1>
@@ -115,7 +115,7 @@ function Painel({
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-6xl space-y-10 px-8 py-8">
+      <div className="mx-auto max-w-6xl space-y-8 px-4 pb-8 pt-5 sm:space-y-10 sm:px-8 sm:py-8 espaco-fab">
         {/* cabeçalho */}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -160,7 +160,7 @@ function Painel({
         </div>
 
         {/* números do mês */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           <Numero rotulo="Gastos do mês" valor={din.completo(r.gastos)} icone={<TrendingDown />}>
             {variacao !== null && (
               <span className={cn('inline-flex items-center gap-0.5 text-[11px] font-semibold', variacao > 0 ? 'text-warn' : 'text-accent')}>
@@ -275,11 +275,12 @@ function Painel({
 
 function Numero({ rotulo, valor, icone, children }: { rotulo: string; valor: string; icone: React.ReactNode; children?: React.ReactNode }) {
   return (
-    <Cartao className="p-4">
-      <div className="flex items-start gap-3">
-        <div className="rounded-xl bg-accent-soft p-2.5 text-accent [&_svg]:size-[18px]">{icone}</div>
-        <div className="min-w-0">
-          <p className="truncate text-xl font-extrabold leading-none tabular-nums">{valor}</p>
+    <Cartao className="p-3.5 sm:p-4">
+      {/* num ecrã estreito o ícone fica por cima, para o valor caber inteiro */}
+      <div className="flex items-start gap-3 max-sm:flex-col max-sm:gap-2.5">
+        <div className="shrink-0 rounded-xl bg-accent-soft p-2.5 text-accent [&_svg]:size-[18px]">{icone}</div>
+        <div className="min-w-0 max-sm:w-full">
+          <p className="truncate text-lg font-extrabold leading-none tabular-nums sm:text-xl">{valor}</p>
           <p className="mt-1 truncate text-[11px] text-muted">{rotulo}</p>
           {children && <div className="mt-1">{children}</div>}
         </div>

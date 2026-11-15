@@ -16,6 +16,7 @@ import { Desbloqueio } from '@/ecras/Desbloqueio'
 import { Arranque } from '@/ecras/Arranque'
 import { NovaSenha } from '@/ecras/NovaSenha'
 import { Shell } from '@/ecras/Shell'
+import { iniciarAndroid } from '@/lib/movel'
 
 /** Teclas do navegador que não fazem sentido numa app (e algumas que poderiam expor conteúdo). */
 function teclaDoNavegador(e: KeyboardEvent): boolean {
@@ -31,6 +32,7 @@ export default function App() {
   const fase = useSessao((s) => s.fase)
   const config = useSessao((s) => s.config)
   const erroArranque = useSessao((s) => s.app?.erroArranque)
+  const android = useSessao((s) => s.app?.plataforma === 'android')
 
   // arranque: estado, aparência, mostrar a janela só depois da primeira pintura
   useEffect(() => {
@@ -45,6 +47,7 @@ export default function App() {
     api
       .estadoApp()
       .then(async (e) => {
+        iniciarAndroid(e.plataforma ?? 'windows')
         aplicarAparencia(e.config)
         useSessao.getState().carregar(e)
         // (com a janela ainda invisível não há requestAnimationFrame: basta deixar o React montar)
@@ -129,14 +132,15 @@ export default function App() {
   return (
     <MotionConfig reducedMotion={movimentoReduzido(config) ? 'always' : 'never'}>
       <div className="flex h-full flex-col bg-sidebar">
-        <BarraTitulo />
+        {/* no Android não há janela: o sistema tem as suas próprias barras */}
+        {!android && <BarraTitulo />}
         {/* O conteúdo troca SEM animação de saída: ao bloquear, o cofre desaparece no mesmo frame. */}
         <div className="relative flex min-h-0 flex-1 flex-col">
           {fase === 'desbloqueado' ? (
             <Shell />
           ) : (
             <AnimatePresence mode="popLayout" initial={false}>
-              <motion.div key={fase} className="flex min-h-0 flex-1 flex-col" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
+              <motion.div key={fase} className="ecra-sistema flex min-h-0 flex-1 flex-col bg-bg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
                 {fase === 'bloqueado' && <Desbloqueio />}
                 {fase === 'sem-cofre' && <Arranque />}
                 {fase === 'nova-senha' && <NovaSenha />}

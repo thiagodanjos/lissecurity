@@ -24,7 +24,8 @@ import { avisar, erroParaTexto } from '@/componentes/avisos'
 import { Aviso, Botao, Campo, CampoSenha, Marca } from '@/componentes/ui'
 import { cn } from '@/lib/utils'
 import { data, plural } from '@/lib/formatos'
-import type { CopiaEncontrada, InfoCopia } from '@/lib/tipos'
+import type { CopiaEncontrada, Escolhido, InfoCopia } from '@/lib/tipos'
+import { aparelho, ehAndroid } from '@/lib/movel'
 
 type Passo = 'boas-vindas' | 'nome' | 'senha' | 'confirmar' | 'recuperacao' | 'bloqueio' | 'a-criar' | 'chave' | 'restaurar'
 
@@ -109,7 +110,7 @@ export function Arranque() {
                   O teu cofre pessoal para senhas, dados bancários, cartões e notas confidenciais — da família <span className="font-semibold text-text">Lis</span>.
                 </p>
                 <ul className="mx-auto mt-7 grid max-w-sm gap-2.5 text-left">
-                  <Ponto icone={<FileLock2 />} titulo="Cifrado neste computador" texto="Argon2id e XChaCha20-Poly1305. O ficheiro do cofre não se lê sem a tua senha." />
+                  <Ponto icone={<FileLock2 />} titulo={`Cifrado neste ${aparelho()}`} texto="Argon2id e XChaCha20-Poly1305. O ficheiro do cofre não se lê sem a tua senha." />
                   <Ponto icone={<WifiOff />} titulo="Funciona sem internet" texto="Sem conta online, sem anúncios, sem telemetria, sem sincronização." />
                   <Ponto icone={<KeyRound />} titulo="Só tu tens a chave" texto="Não há senha padrão nem acesso de suporte. Ninguém consegue abrir o cofre por ti." />
                 </ul>
@@ -216,7 +217,7 @@ export function Arranque() {
                     ativa={comRecuperacao}
                     aoEscolher={() => setComRecuperacao(true)}
                     titulo="Criar uma chave de recuperação (recomendado)"
-                    texto="Uma chave aleatória que também abre o cofre. Vais guardá-la fora do computador (em papel, por exemplo)."
+                    texto={`Uma chave aleatória que também abre o cofre. Vais guardá-la fora do ${aparelho()} (em papel, por exemplo).`}
                   />
                   <Opcao
                     ativa={!comRecuperacao}
@@ -235,7 +236,7 @@ export function Arranque() {
             )}
 
             {passo === 'bloqueio' && (
-              <Painel icone={<Timer />} titulo="Bloqueio automático" texto="Depois de quanto tempo sem usar a app o cofre se fecha sozinho? Também bloqueia ao minimizar, ao suspender o computador e ao bloquear o Windows (podes mudar isto nas definições).">
+              <Painel icone={<Timer />} titulo="Bloqueio automático" texto={ehAndroid() ? 'Depois de quanto tempo sem usar a app o cofre se fecha sozinho? Também bloqueia quando sais da app ou desligas o ecrã (podes mudar isto nas definições).' : 'Depois de quanto tempo sem usar a app o cofre se fecha sozinho? Também bloqueia ao minimizar, ao suspender o computador e ao bloquear o Windows (podes mudar isto nas definições).'}>
                 <div role="radiogroup" aria-label="Minutos até bloquear" className="grid grid-cols-5 gap-2">
                   {[1, 5, 15, 30, 60].map((m) => (
                     <button
@@ -264,7 +265,7 @@ export function Arranque() {
             )}
 
             {passo === 'a-criar' && (
-              <Painel icone={<ShieldCheck />} titulo="A criar o teu cofre…" texto="A medir este computador para calibrar a proteção da senha (Argon2id) e a gerar as chaves. Demora alguns segundos.">
+              <Painel icone={<ShieldCheck />} titulo="A criar o teu cofre…" texto={`A medir este ${aparelho()} para calibrar a proteção da senha (Argon2id) e a gerar as chaves. Demora alguns segundos.`}>
                 <div className="flex justify-center py-6">
                   <span className="size-10 rounded-full border-2 border-border border-t-accent roda" aria-label="A trabalhar" />
                 </div>
@@ -350,7 +351,8 @@ function Opcao({ ativa, aoEscolher, titulo, texto }: { ativa: boolean; aoEscolhe
 
 /** Restaurar no primeiro uso: escolher o ficheiro, testar com a senha da altura, restaurar. */
 function Restaurar({ aoVoltar, aoConcluir }: { aoVoltar: () => void; aoConcluir: () => void }) {
-  const [caminho, setCaminho] = useState<string | null>(null)
+  const [ficheiro, setFicheiro] = useState<Escolhido | null>(null)
+  const caminho = ficheiro?.id ?? null
   const [senha, setSenha] = useState('')
   const [info, setInfo] = useState<InfoCopia | null>(null)
   const [aTrabalhar, setATrabalhar] = useState(false)
@@ -382,7 +384,7 @@ function Restaurar({ aoVoltar, aoConcluir }: { aoVoltar: () => void; aoConcluir:
     try {
       const c = await api.escolherCopia()
       if (c) {
-        setCaminho(c)
+        setFicheiro(c)
         setInfo(null)
         setErro(null)
       }
@@ -434,7 +436,7 @@ function Restaurar({ aoVoltar, aoConcluir }: { aoVoltar: () => void; aoConcluir:
                 <button
                   type="button"
                   onClick={() => {
-                    setCaminho(c.caminho)
+                    setFicheiro({ id: c.caminho, nome: c.nome })
                     setInfo(null)
                     setErro(null)
                   }}
@@ -456,7 +458,17 @@ function Restaurar({ aoVoltar, aoConcluir }: { aoVoltar: () => void; aoConcluir:
       <Botao variante="escuro" largo onClick={escolher} icone={<FileLock2 />}>
         {caminho ? 'Escolher outro ficheiro' : naNuvem && naNuvem.length > 0 ? 'Escolher outro ficheiro…' : 'Escolher o ficheiro da cópia'}
       </Botao>
-      {caminho && <p className="mt-2 truncate text-[11.5px] text-faint" title={caminho}>{caminho}</p>}
+      {ficheiro ? (
+        <p className="mt-2 truncate text-[11.5px] text-faint" title={ficheiro.id}>
+          {ehAndroid() ? ficheiro.nome : ficheiro.id}
+        </p>
+      ) : (
+        ehAndroid() && (
+          <p className="mt-2.5 text-[12px] leading-relaxed text-faint">
+            Se a cópia está no Google Drive, escolhe «Drive» no menu do seletor de ficheiros (☰). Também serve um ficheiro que recebeste por e-mail ou guardaste nas Transferências.
+          </p>
+        )
+      )}
       {caminho && !info && (
         <form onSubmit={testar} className="mt-4">
           <CampoSenha ref={campo} rotulo="Senha mestra da cópia" value={senha} onChange={(e) => setSenha(e.target.value)} />

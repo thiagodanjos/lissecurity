@@ -14,6 +14,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, CheckCircle2, ChevronDown, Eye, EyeOff, Loader2, X } from 'lucide-react'
 import { create } from 'zustand'
 import { cn } from '@/lib/utils'
+import { ehAndroid, useVoltar } from '@/lib/movel'
 import type { Validacao } from '@/lib/formatos'
 
 /* ───────────────────────── marca ───────────────────────── */
@@ -453,6 +454,8 @@ export function Modal({
 }) {
   const painel = useRef<HTMLDivElement>(null)
   const idTitulo = useId()
+  const android = ehAndroid()
+  useVoltar(aberto, aoFechar)
   // `aoFechar` costuma ser uma função nova a cada render: guardada numa referência, o efeito
   // de foco só corre quando a janela abre ou fecha (e não a cada tecla escrita lá dentro).
   const fecharRef = useRef(aoFechar)
@@ -494,7 +497,11 @@ export function Modal({
     <AnimatePresence>
       {aberto && (
         <motion.div
-          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 p-4 pt-14 backdrop-blur-sm"
+          className={cn(
+            'fixed inset-0 z-[90] flex bg-black/60 backdrop-blur-sm',
+            // Android: folha que sobe do fundo, por cima do teclado quando ele está aberto
+            android ? 'flex-col justify-end pb-[var(--sistema-teclado,0px)] pt-[calc(var(--sistema-topo,0px)+12px)]' : 'items-center justify-center p-4 pt-14',
+          )}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -508,10 +515,13 @@ export function Modal({
             role="dialog"
             aria-modal="true"
             aria-labelledby={idTitulo}
-            className={cn('flex max-h-full w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sobreposicao', largura)}
-            initial={{ opacity: 0, y: 12, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.98 }}
+            className={cn(
+              'flex max-h-full w-full flex-col overflow-hidden border border-border bg-card shadow-sobreposicao',
+              android ? 'rounded-t-[26px] border-b-0' : cn('rounded-2xl', largura),
+            )}
+            initial={android ? { y: '100%' } : { opacity: 0, y: 12, scale: 0.98 }}
+            animate={android ? { y: 0 } : { opacity: 1, y: 0, scale: 1 }}
+            exit={android ? { y: '100%' } : { opacity: 0, y: 8, scale: 0.98 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           >
             <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
@@ -532,8 +542,8 @@ export function Modal({
                 <X className="size-4" />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{children}</div>
-            {rodape && <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-raised/40 px-5 py-3.5">{rodape}</div>}
+            <div className={cn('min-h-0 flex-1 overflow-y-auto px-5 py-5', android && !rodape && 'rodape-folha')}>{children}</div>
+            {rodape && <div className={cn('flex flex-wrap items-center justify-end gap-2 border-t border-border bg-raised/40 px-5 py-3.5', android && 'rodape-folha [&>button]:min-h-11')}>{rodape}</div>}
           </motion.div>
         </motion.div>
       )}

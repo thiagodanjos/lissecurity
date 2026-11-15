@@ -32,6 +32,9 @@ import type {
   CopiaEncontrada,
   EstadoCopias,
   CopiaFeita,
+  Escolhido,
+  EstadoBiometria,
+  Margens,
 } from './tipos'
 
 let epoca = 0
@@ -96,6 +99,9 @@ export const api = {
   janelaAlternarMaximizar: () => chamar<boolean>('janela_alternar_maximizar'),
   janelaMaximizada: () => chamar<boolean>('janela_maximizada'),
   janelaFechar: () => chamar<void>('janela_fechar'),
+  /** Android: o voltar no primeiro ecrã manda a app para trás (como o botão de início) */
+  paraSegundoPlano: () => chamar<void>('para_segundo_plano'),
+  margensSistema: () => chamar<Margens>('margens_sistema'),
 
   // abrir e fechar
   criarCofre: (senha: string, nome: string, bloqueioMinutos: number, comRecuperacao: boolean) =>
@@ -146,7 +152,9 @@ export const api = {
 
   // cópias de segurança
   criarCopia: () => chamar<CopiaCriada | null>('criar_copia'),
-  escolherCopia: () => chamar<string | null>('escolher_copia'),
+  /** Android: folha de partilha do sistema com uma cópia cifrada acabada de fazer */
+  partilharCopia: () => chamar<void>('partilhar_copia'),
+  escolherCopia: () => chamar<Escolhido | null>('escolher_copia'),
   testarCopia: (caminho: string, senha: string) => chamar<InfoCopia>('testar_copia', { caminho, senha }),
   restaurarCopia: (caminho: string, senha: string, senhaAtual: string | null) =>
     chamar<InfoCopia>('restaurar_copia', { caminho, senha, senhaAtual }),
@@ -159,7 +167,7 @@ export const api = {
   guardarGerador: (preferencias: PreferenciasGerador) => chamar<void>('guardar_gerador', { preferencias }),
 
   // importação
-  escolherCsv: (titulo: string) => chamar<string | null>('escolher_csv', { titulo }),
+  escolherCsv: (titulo: string) => chamar<Escolhido | null>('escolher_csv', { titulo }),
   apagarFicheiroImportado: (caminho: string) => chamar<void>('apagar_ficheiro_importado', { caminho }),
   preVisualizarSenhas: (caminho: string) => chamar<PreviaSenhas>('pre_visualizar_senhas', { caminho }),
   importarSenhas: (caminho: string) => chamar<Importacao>('importar_senhas', { caminho }),
@@ -179,4 +187,10 @@ export const api = {
   estadoCopias: () => chamar<EstadoCopias>('estado_copias'),
   configurarCopias: (ativo: boolean, pasta: string, manter: number) => chamar<EstadoCopias>('configurar_copias', { ativo, pasta, manter }),
   fazerCopiaAuto: () => chamar<CopiaFeita>('fazer_copia_auto'),
+
+  // Android — desbloqueio com impressão digital ou rosto (chave do cofre no Keystore)
+  estadoBiometria: () => chamar<EstadoBiometria>('estado_biometria'),
+  ativarBiometria: (senha: string) => chamar<void>('ativar_biometria', { senha }),
+  desativarBiometria: () => chamar<void>('desativar_biometria'),
+  desbloquearBiometria: () => chamar<Desbloqueio>('desbloquear_biometria'),
 }

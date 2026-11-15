@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils'
 import { avisar, erroParaTexto } from '@/componentes/avisos'
 import { IconeRegisto } from '@/componentes/registo'
 import { Botao, Cartao, Spinner, TituloSecao } from '@/componentes/ui'
+import { aparelho, ehAndroid } from '@/lib/movel'
 
 // a faixa da primeira cópia pode ser dispensada nesta sessão (não fica guardado em disco)
 let faixaDispensada = false
@@ -106,7 +107,7 @@ export function VisaoGeral() {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-6xl space-y-10 px-8 py-8">
+      <div className="mx-auto max-w-6xl space-y-8 px-4 pb-8 pt-5 sm:space-y-10 sm:px-8 sm:py-8 espaco-fab">
         {/* saudação e números */}
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
           <h1 className="text-3xl font-extrabold tracking-tight [overflow-wrap:anywhere]">
@@ -114,9 +115,9 @@ export function VisaoGeral() {
             {v.nome && <span className="text-brand-gradient">{v.nome}</span>}
           </h1>
           <p className="mt-1.5 text-sm text-muted">
-            {v.total === 0 ? 'O teu cofre está pronto. Começa por guardar a primeira senha.' : `O teu cofre tem ${plural(v.total, 'registo', 'registos')}. Bloqueia-o sempre que te afastares — Ctrl+L.`}
+            {v.total === 0 ? 'O teu cofre está pronto. Começa por guardar a primeira senha.' : `O teu cofre tem ${plural(v.total, 'registo', 'registos')}. Bloqueia-o sempre que te afastares${ehAndroid() ? '.' : ' — Ctrl+L.'}`}
           </p>
-          <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             {cartoes.map((c, i) => (
               <motion.button
                 key={c.rotulo}
@@ -128,12 +129,12 @@ export function VisaoGeral() {
                 whileHover={{ y: -3 }}
                 className="cursor-pointer text-left"
               >
-                <Cartao hover className="p-4">
+                <Cartao hover className="p-3.5 sm:p-4">
                   <div className="flex items-center gap-3">
-                    <div className={cn('rounded-xl p-2.5 [&_svg]:size-[18px]', c.aviso ? 'bg-warn-soft text-warn' : 'bg-accent-soft text-accent')}>{c.icone}</div>
+                    <div className={cn('shrink-0 rounded-xl p-2.5 [&_svg]:size-[18px]', c.aviso ? 'bg-warn-soft text-warn' : 'bg-accent-soft text-accent')}>{c.icone}</div>
                     <div className="min-w-0">
-                      <p className="truncate text-xl font-extrabold leading-none tabular-nums">{c.valor}</p>
-                      <p className="mt-1 truncate text-[11px] text-muted">{c.rotulo}</p>
+                      <p className="truncate text-lg font-extrabold leading-none tabular-nums sm:text-xl">{c.valor}</p>
+                      <p className="mt-1 line-clamp-2 text-[11px] leading-tight text-muted sm:truncate">{c.rotulo}</p>
                     </div>
                   </div>
                 </Cartao>
@@ -159,7 +160,9 @@ export function VisaoGeral() {
               <p className="mt-0.5 text-[12.5px] text-muted">
                 {ultimaCopia
                   ? `A última cópia é de ${haQuanto(ultimaCopia)}. Liga as cópias automáticas para nunca mais te preocupares com isto.`
-                  : 'Se perderes este computador, o cofre vai com ele. Com as cópias automáticas, fica uma cópia cifrada no Google Drive sempre que algo muda.'}
+                  : ehAndroid()
+                    ? 'Se perderes este telemóvel, o cofre vai com ele. Guarda uma cópia cifrada no Google Drive (ou liga as cópias automáticas para uma pasta).'
+                    : 'Se perderes este computador, o cofre vai com ele. Com as cópias automáticas, fica uma cópia cifrada no Google Drive sempre que algo muda.'}
               </p>
             </div>
             <Botao className="relative" icone={<Cloud />} onClick={() => irPara('copias')}>
@@ -202,7 +205,7 @@ export function VisaoGeral() {
                 {new Intl.NumberFormat('pt-PT', { style: 'currency', currency: mes.moeda }).format(mes.gastos / 100)}
               </span>
             </span>
-            <span className="text-right text-[12.5px] text-muted">
+            <span className="text-right text-[12.5px] text-muted max-sm:order-last max-sm:basis-full max-sm:pl-16 max-sm:text-left">
               {mes.categoria && (
                 <span className="block">
                   Mais em <span className="font-semibold text-text">{mes.categoria}</span>
@@ -277,7 +280,7 @@ export function VisaoGeral() {
                       <ArrowRight className="size-4 text-faint transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                     </button>
                   ))}
-                  <p className="px-1 pt-1 text-[11px] leading-relaxed text-faint">Análise feita neste computador. Nenhuma senha é enviada para a internet.</p>
+                  <p className="px-1 pt-1 text-[11px] leading-relaxed text-faint">Análise feita neste {aparelho()}. Nenhuma senha é enviada para a internet.</p>
                 </div>
               )}
             </section>

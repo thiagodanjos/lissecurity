@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, FileSpreadsheet, FileWarning, Trash2, Upload } from 'lucide-react'
 import { api, descartado } from '@/lib/ipc'
 import { useSessao } from '@/lib/sessao'
-import type { Importacao, PreviaSenhas } from '@/lib/tipos'
+import type { Escolhido, Importacao, PreviaSenhas } from '@/lib/tipos'
 import { plural } from '@/lib/formatos'
 import { avisar, erroParaTexto } from './avisos'
 import { Aviso, Botao, Modal } from './ui'
+import { ehAndroid } from '@/lib/movel'
 
 const FONTES_SENHAS = [
   ['Chrome / Edge / Brave', 'Definições → Palavras-passe → ⋮ → Exportar palavras-passe'],
@@ -32,18 +33,21 @@ export function Importar() {
   )
 }
 
-function ApagarCsv({ caminho }: { caminho: string }) {
+function ApagarCsv({ ficheiro }: { ficheiro: Escolhido }) {
   const [apagado, setApagado] = useState(false)
+  const caminho = ficheiro.id
   if (apagado)
     return (
       <Aviso tom="verde" icone={<CheckCircle2 />}>
-        O ficheiro CSV foi apagado. (Num SSD, pode ainda ser recuperável com ferramentas especiais — esvazia também a reciclagem se o tiveres lá.)
+        {ehAndroid()
+          ? 'O ficheiro CSV foi apagado. Se também o tinhas noutro sítio (no Google Drive, num e-mail ou numa conversa), apaga-o lá também.'
+          : 'O ficheiro CSV foi apagado. (Num SSD, pode ainda ser recuperável com ferramentas especiais — esvazia também a reciclagem se o tiveres lá.)'}
       </Aviso>
     )
   return (
     <Aviso tom="ambar" icone={<FileWarning />}>
       <p>
-        O ficheiro <strong>{caminho.split(/[\\/]/).pop()}</strong> tem as senhas em texto simples. Agora que estão no cofre, apaga-o.
+        O ficheiro <strong className="break-all">{ficheiro.nome}</strong> tem as senhas em texto simples. Agora que estão no cofre, apaga-o.
       </p>
       <Botao
         variante="perigo"
@@ -67,7 +71,8 @@ function ApagarCsv({ caminho }: { caminho: string }) {
 }
 
 function ImportarSenhas({ aoFechar }: { aoFechar: () => void }) {
-  const [caminho, setCaminho] = useState<string | null>(null)
+  const [ficheiro, setFicheiro] = useState<Escolhido | null>(null)
+  const caminho = ficheiro?.id ?? null
   const [previa, setPrevia] = useState<PreviaSenhas | null>(null)
   const [resultado, setResultado] = useState<Importacao | null>(null)
   const [aTrabalhar, setATrabalhar] = useState(false)
@@ -78,10 +83,10 @@ function ImportarSenhas({ aoFechar }: { aoFechar: () => void }) {
     try {
       const c = await api.escolherCsv('Escolhe o CSV com as senhas exportadas')
       if (!c) return
-      setCaminho(c)
+      setFicheiro(c)
       setPrevia(null)
       setATrabalhar(true)
-      setPrevia(await api.preVisualizarSenhas(c))
+      setPrevia(await api.preVisualizarSenhas(c.id))
     } catch (e) {
       if (descartado(e)) return
       setErro(erroParaTexto(e))
@@ -104,7 +109,7 @@ function ImportarSenhas({ aoFechar }: { aoFechar: () => void }) {
     }
   }
 
-  if (resultado && caminho) {
+  if (resultado && ficheiro) {
     return (
       <div className="space-y-4">
         <div className="flex flex-col items-center py-2 text-center">
@@ -115,7 +120,7 @@ function ImportarSenhas({ aoFechar }: { aoFechar: () => void }) {
             Ficaram com a etiqueta #importado.
           </p>
         </div>
-        <ApagarCsv caminho={caminho} />
+        <ApagarCsv ficheiro={ficheiro} />
         <Botao largo onClick={aoFechar}>
           Concluir
         </Botao>
@@ -159,20 +164,20 @@ function ImportarSenhas({ aoFechar }: { aoFechar: () => void }) {
 }
 
 function ImportarExtrato({ aoFechar }: { aoFechar: () => void }) {
-  const [caminho, setCaminho] = useState<string | null>(null)
+  const [ficheiro, setFicheiro] = useState<Escolhido | null>(null)
   const [resultado, setResultado] = useState<Importacao | null>(null)
   const [aTrabalhar, setATrabalhar] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  useEffect(() => setErro(null), [caminho])
+  useEffect(() => setErro(null), [ficheiro])
 
   const escolherEImportar = async () => {
     setErro(null)
     try {
       const c = await api.escolherCsv('Escolhe o extrato (CSV)')
       if (!c) return
-      setCaminho(c)
+      setFicheiro(c)
       setATrabalhar(true)
-      setResultado(await api.importarExtrato(c))
+      setResultado(await api.importarExtrato(c.id))
       useSessao.getState().mudou()
     } catch (e) {
       if (descartado(e)) return
@@ -194,9 +199,9 @@ function ImportarExtrato({ aoFechar }: { aoFechar: () => void }) {
             {resultado.ignorados > 0 && ` · ${plural(resultado.ignorados, 'pendente ou anulado ignorado', 'pendentes ou anulados ignorados')}`}
           </p>
         </div>
-        {caminho && (
+        {ficheiro && (
           <Aviso tom="neutro">
-            O extrato original continua em <span className="mono break-all">{caminho}</span>. Se não precisares dele, apaga-o — os movimentos já estão cifrados no cofre.
+            O extrato original (<span className="mono break-all">{ehAndroid() ? ficheiro.nome : ficheiro.id}</span>) continua onde estava. Se não precisares dele, apaga-o — os movimentos já estão cifrados no cofre.
           </Aviso>
         )}
         <Botao largo onClick={aoFechar}>
@@ -216,7 +221,7 @@ function ImportarExtrato({ aoFechar }: { aoFechar: () => void }) {
         <li>
           Escolhe o formato <strong className="text-text">Excel</strong> (é um ficheiro .csv) e o período.
         </li>
-        <li>Envia o ficheiro para o computador e escolhe-o abaixo. Podes importar todos os meses — os repetidos são saltados.</li>
+        <li>{ehAndroid() ? 'Guarda o ficheiro no telemóvel (ou no Drive) e escolhe-o abaixo.' : 'Envia o ficheiro para o computador e escolhe-o abaixo.'} Podes importar todos os meses — os repetidos são saltados.</li>
       </ol>
       <p className="text-[11.5px] text-faint">Outros bancos: qualquer CSV com colunas de data, descrição e valor.</p>
       {erro && <Aviso tom="vermelho">{erro}</Aviso>}

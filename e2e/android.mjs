@@ -1,0 +1,647 @@
+// Teste ponta-a-ponta da app REAL no Android (camada Rust + Kotlin + interface), num emulador.
+// A interface é conduzida pelo protocolo DevTools do WebView, que só existe nos APK de teste
+// (compilados com -PdepurarWebView=true; os publicados nunca o têm). As teclas do sistema
+// (voltar, início) e as verificações do pacote vão por adb. Só usa dados claramente fictícios
+// e começa sempre com os dados da app apagados (pm clear).
+//
+//   ORG_GRADLE_PROJECT_depurarWebView=true npx tauri android build --target x86_64 --apk
+//   adb install -r <apk>
+//   node e2e/android.mjs
+//
+// ALVO=simulador corre o mesmo percurso no simulador da interface (Chromium com
+// ?simular=android, servidor do Vite em ENDERECO), sem os passos que precisam do Android:
+// serve para validar o próprio teste num computador sem emulador.
+
+import { execFileSync, spawn } from 'node:child_process'
+import { mkdirSync, writeFileSync, mkdtempSync, openSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+
+const RAIZ = path.resolve(import.meta.dirname, '..')
+const PACOTE = 'pt.lisfilms.lissecurity'
+const ATIVIDADE = `${PACOTE}/.MainActivity`
+const SIMULADOR = process.env.ALVO === 'simulador'
+const CAPTURAS = process.env.CAPTURAS ?? path.join(RAIZ, 'target', 'capturas-android')
+const PORTA = 9333
+// Variante do teste (só nos APK de teste): extras com que a app é aberta, separados por vírgulas,
+// p. ex. VARIANTE=teste_sem_flag_secure ou teste_webview_software
+const EXTRAS = (process.env.VARIANTE ?? '').split(',').filter(Boolean).flatMap((x) => ['--ez', x, 'true'])
+const SEM_FLAG_SECURE = EXTRAS.includes('teste_sem_flag_secure')
+const SEM_GPU = EXTRAS.includes('teste_webview_software')
+
+// Sem GPU (emulador do CI), desfocar o fundo e as sombras custa segundos por fotograma e os toques
+// ficam sem resposta. O teste desliga só esses efeitos visuais, com uma folha de estilos do CSSOM
+// (não mexe no código nem na CSP da app, nem no comportamento que se testa).
+const SEM_EFEITOS = `(() => {
+  if (window.__semEfeitos) return
+  window.__semEfeitos = true
+  const f = new CSSStyleSheet()
+  f.replaceSync('*,*::before,*::after{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;filter:none!important;box-shadow:none!important;text-shadow:none!important}')
+  document.adoptedStyleSheets = [...document.adoptedStyleSheets, f]
+})()`
+const SENHA = 'cavalo-bateria-agrafo-correto-android'
+const SEGREDO = 'SENHA-FICTICIA-ANDROID-4417'
+const TITULO = 'Correio Exemplo Android'
+mkdirSync(CAPTURAS, { recursive: true })
+
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms))
+function assegurar(cond, msg) {
+  if (!cond) throw new Error(msg)
+}
+
+// ───────────────────────────── adb ─────────────────────────────
+
+function adb(...args) {
+  return execFileSync('adb', args, { encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] })
+}
+const shell = (...args) => adb('shell', ...args)
+const tecla = (codigo) => shell('input', 'keyevent', String(codigo))
+const VOLTAR = 4
+const INICIO = 3
+
+/** O teclado do sistema está aberto? (o primeiro «voltar» fecha-o, como num telemóvel) */
+function tecladoAberto() {
+  try {
+    return /mInputShown=true|isInputViewShown=true/.test(shell('dumpsys', 'input_method'))
+  } catch {
+    return false
+  }
+}
+/** Tira o foco do campo e espera que o teclado desça (sem «voltar», que a app também ouve). */
+async function ocultarTeclado() {
+  await js('document.activeElement && document.activeElement.blur && document.activeElement.blur()').catch(() => {})
+  if (SIMULADOR) return
+  for (let i = 0; i < 10 && tecladoAberto(); i++) await esperar(300)
+}
+
+/** Só no passo do botão voltar: com o teclado aberto, o primeiro «voltar» fecha-o (como num telemóvel). */
+async function fecharTecladoComVoltar() {
+  if (SIMULADOR) return
+  await ocultarTeclado()
+  for (let i = 0; i < 3 && tecladoAberto(); i++) {
+    tecla(VOLTAR)
+    await esperar(800)
+  }
+}
+
+/**
+ * A Activity já recebeu o onStop (é aí que a app bloqueia ao sair)? Só depois de o ecrã inicial
+ * do Android se desenhar por cima — no emulador sem GPU pode levar bem mais do que num telemóvel.
+ */
+function atividadeParada() {
+  try {
+    const t = shell('dumpsys', 'activity', '-p', PACOTE, 'activities')
+    const i = t.indexOf(`${PACOTE}/.MainActivity`)
+    if (i < 0) return true
+    return /state=STOPPED|stopped=true/.test(t.slice(i, i + 4000))
+  } catch {
+    return false
+  }
+}
+
+/** O emulador ainda responde ao adb? */
+function dispositivoVivo() {
+  try {
+    return adb('get-state').trim() === 'device'
+  } catch {
+    return false
+  }
+}
+
+/** Registo do sistema durante o teste (vai com as capturas: só há dados fictícios). */
+let logcat = null
+function iniciarLogcat() {
+  try {
+    adb('logcat', '-c')
+  } catch {}
+  const f = openSync(path.join(CAPTURAS, 'logcat.txt'), 'w')
+  logcat = spawn('adb', ['logcat', '-v', 'threadtime'], { stdio: ['ignore', f, f] })
+}
+
+/** A atividade que está à frente (a que recebe o toque). */
+function emPrimeiroPlano() {
+  const t = shell('dumpsys', 'activity', 'activities')
+  const linha = t.split('\n').find((l) => /topResumedActivity|mResumedActivity|ResumedActivity:/.test(l)) ?? ''
+  return linha.includes(PACOTE)
+}
+
+async function esperarAte(cond, ms, msg) {
+  const fim = Date.now() + ms
+  while (Date.now() < fim) {
+    try {
+      if (await cond()) return
+    } catch {}
+    await esperar(250)
+  }
+  throw new Error(msg)
+}
+
+// ───────────────────────── DevTools (CDP) ─────────────────────────
+
+class Cdp {
+  constructor(url) {
+    this.n = 0
+    this.pendentes = new Map()
+    this.ws = new WebSocket(url)
+    /** erros de JavaScript, mensagens da consola e do navegador (CSP, rede), para o diagnóstico */
+    this.eventos = []
+    this.ws.onmessage = (m) => {
+      const r = JSON.parse(String(m.data))
+      if (!r.id && r.method) {
+        const e = resumirEvento(r.method, r.params)
+        if (e) this.eventos.push(e)
+        if (this.eventos.length > 150) this.eventos.shift()
+        return
+      }
+      const p = r.id && this.pendentes.get(r.id)
+      if (!p) return
+      this.pendentes.delete(r.id)
+      if (r.error) p.falha(new Error(`${r.error.message} (${r.error.code})`))
+      else p.ok(r.result)
+    }
+    this.aberto = new Promise((ok, falha) => {
+      this.ws.onopen = ok
+      this.ws.onerror = () => falha(new Error('sem ligação ao DevTools do WebView'))
+    })
+  }
+  enviar(method, params = {}) {
+    const id = ++this.n
+    this.ws.send(JSON.stringify({ id, method, params }))
+    return new Promise((ok, falha) => {
+      this.pendentes.set(id, { ok, falha })
+      // sem GPU, no emulador do CI, um fotograma pode levar mais de 15 s: margem larga
+      setTimeout(() => this.pendentes.has(id) && (this.pendentes.delete(id), falha(new Error(`${method} sem resposta`))), 90_000)
+    })
+  }
+  fechar() {
+    try {
+      this.ws.close()
+    } catch {}
+  }
+}
+
+let cdp = null
+let navegador = null
+
+function resumirEvento(metodo, p) {
+  if (metodo === 'Runtime.exceptionThrown') return `exceção: ${p.exceptionDetails?.exception?.description ?? p.exceptionDetails?.text}`.slice(0, 400)
+  if (metodo === 'Runtime.consoleAPICalled' && ['error', 'warning', 'assert'].includes(p.type))
+    return `consola.${p.type}: ${(p.args ?? []).map((a) => a.value ?? a.description ?? a.type).join(' ')}`.slice(0, 400)
+  if (metodo === 'Log.entryAdded' && p.entry?.level !== 'verbose') return `navegador.${p.entry.level}: ${p.entry.text} ${p.entry.url ?? ''}`.slice(0, 400)
+  return null
+}
+
+/** Escreve no registo do CI o que ajuda a perceber uma falha (o artefacto pode não estar à mão).
+ *  Primeiro o que vem do adb (o emulador pode não durar muito), depois a página. */
+async function diagnostico(titulo) {
+  console.log(`   ── diagnóstico: ${titulo}`)
+  if (!SIMULADOR) {
+    try {
+      const foco = shell('dumpsys', 'window').split('\n').filter((l) => /mCurrentFocus|mFocusedApp/.test(l)).map((l) => l.trim())
+      console.log(`   janela com foco: ${foco.join(' | ')}`)
+    } catch {}
+    try {
+      const top = shell('top', '-b', '-n', '1', '-m', '8').split('\n').filter((l) => l.trim()).slice(0, 16)
+      console.log('   processos (top):')
+      for (const l of top) console.log(`   : ${l.slice(0, 200)}`)
+    } catch {}
+    try {
+      const pid = shell('pidof', PACOTE).trim()
+      const linhas = adb('logcat', '-d', '-t', '3000', '-v', 'brief')
+        .split('\n')
+        .filter((l) => (pid && l.includes(`(${pid.padStart(5)})`)) || /AndroidRuntime|FATAL|ANR in|lissecurity|Tauri|RustStdout|chromium|cr_|libc|DEBUG|gfxstream|EGL|OpenGLRenderer|lowmemorykiller|SurfaceFlinger/.test(l))
+      console.log(`   logcat (pid ${pid || '?'}, ${linhas.length} linhas relevantes, últimas 100):`)
+      for (const l of linhas.slice(-100)) console.log(`   | ${l.slice(0, 300)}`)
+    } catch (e) {
+      console.log(`   logcat indisponível: ${String(e?.message ?? e).slice(0, 120)}`)
+    }
+  }
+  try {
+    const estado = await Promise.race([
+      js(`JSON.stringify({ url: location.href, pronto: document.readyState, scripts: document.scripts.length, tauri: !!window.__TAURI_INTERNALS__, ipc: !!window.ipc, plataforma: document.documentElement.dataset.plataforma ?? null, raiz: document.getElementById('root')?.innerHTML.length ?? -1 })`),
+      esperar(5000).then(() => 'sem resposta em 5 s'),
+    ])
+    console.log(`   página: ${estado}`)
+  } catch (e) {
+    console.log(`   página: ${String(e?.message ?? e).slice(0, 120)}`)
+  }
+  for (const e of cdp?.eventos ?? []) console.log(`   ${e}`)
+}
+
+/** Liga-se ao WebView da app (Android) ou a um Chromium com o simulador. */
+async function ligar() {
+  cdp?.fechar()
+  if (SIMULADOR) {
+    if (!navegador) {
+      const perfil = mkdtempSync(path.join(tmpdir(), 'lissecurity-cdp-'))
+      const exe = process.env.CHROMIUM ?? '/opt/pw-browsers/chromium'
+      navegador = spawn(exe, ['--headless=new', `--remote-debugging-port=${PORTA}`, `--user-data-dir=${perfil}`, '--window-size=412,915', '--no-sandbox', 'about:blank'], { stdio: 'ignore' })
+      await esperarAte(async () => (await fetch(`http://127.0.0.1:${PORTA}/json/version`)).ok, 15_000, 'o Chromium não abriu o DevTools')
+    }
+  } else {
+    let socket = ''
+    await esperarAte(
+      () => {
+        const pid = shell('pidof', PACOTE).trim()
+        const linhas = shell('cat', '/proc/net/unix')
+        socket = (linhas.match(new RegExp(`@(webview_devtools_remote_${pid})\\b`)) ?? [])[1] ?? ''
+        return !!pid && !!socket
+      },
+      40_000,
+      'o WebView da app não abriu o DevTools (o APK foi compilado com -PdepurarWebView=true?)',
+    )
+    adb('forward', `tcp:${PORTA}`, `localabstract:${socket}`)
+  }
+  let alvo
+  await esperarAte(
+    async () => {
+      const lista = await (await fetch(`http://127.0.0.1:${PORTA}/json/list`)).json()
+      alvo = lista.find((p) => p.type === 'page' && (SIMULADOR || /tauri\.localhost/.test(p.url)))
+      return !!alvo
+    },
+    30_000,
+    'a página da app não apareceu no DevTools',
+  )
+  cdp = new Cdp(alvo.webSocketDebuggerUrl)
+  await cdp.aberto
+  await cdp.enviar('Runtime.enable')
+  await cdp.enviar('Page.enable')
+  await cdp.enviar('Log.enable').catch(() => {})
+  // a app segue «movimento reduzido» (como pede o sistema): sem deslizes nem esmaecimentos, o que
+  // se mede é onde as coisas ficam — no emulador sem GPU cada fotograma pode levar segundos
+  await cdp.enviar('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] }).catch(() => {})
+  if (SEM_GPU) {
+    await cdp.enviar('Page.addScriptToEvaluateOnNewDocument', { source: `document.addEventListener('DOMContentLoaded', () => ${SEM_EFEITOS})` }).catch(() => {})
+    await cdp.enviar('Runtime.evaluate', { expression: SEM_EFEITOS }).catch(() => {})
+  }
+  if (SIMULADOR) {
+    await cdp.enviar('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 1, mobile: true })
+    await cdp.enviar('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
+  }
+}
+
+/** Corre JavaScript na página e devolve o valor (falha se o script lançar um erro). */
+async function js(expressao) {
+  const r = await cdp.enviar('Runtime.evaluate', { expression: expressao, awaitPromise: true, returnByValue: true })
+  if (r.exceptionDetails) throw new Error(`erro na página: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`)
+  return r.result.value
+}
+const textoPagina = () => js('document.body.innerText')
+const html = () => js('document.documentElement.outerHTML')
+
+async function esperarTexto(texto, ms = 25_000) {
+  try {
+    await esperarAte(async () => (await textoPagina()).includes(texto), ms, '')
+  } catch {
+    const ecra = await textoPagina().catch(() => '')
+    throw new Error(`"${texto}" não apareceu em ${ms / 1000} s. No ecrã: ${String(ecra).replace(/\s+/g, ' ').slice(0, 300)}`)
+  }
+}
+async function semTexto(texto, ms = 10_000) {
+  await esperarAte(async () => !(await textoPagina()).includes(texto), ms, `"${texto}" continua no ecrã`)
+}
+
+// Funções que correm dentro da página: encontrar um botão pelo texto ou pelo aria-label (o
+// último diálogo aberto primeiro) e um campo pelo rótulo.
+const AJUDANTES = `
+  const visivel = (e) => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' }
+  const raiz = () => { const d = [...document.querySelectorAll('[role="dialog"]')].filter(visivel); return d[d.length - 1] ?? document }
+  const nome = (e) => (e.getAttribute('aria-label') || e.innerText || '').replace(/\\s+/g, ' ').trim()
+  const botao = (t) => {
+    const todos = [...raiz().querySelectorAll('button, [role="switch"], [role="radio"], [role="tab"], a, label')].filter(visivel)
+    return todos.find((b) => nome(b) === t) ?? todos.find((b) => nome(b).startsWith(t)) ?? todos.find((b) => nome(b).includes(t))
+  }
+  const campo = (t) => {
+    const r = raiz()
+    const l = [...r.querySelectorAll('label')].find((x) => x.textContent.replace(/\\s+/g, ' ').trim().startsWith(t) && x.htmlFor)
+    return (l && document.getElementById(l.htmlFor)) ?? r.querySelector('[aria-label="' + t + '"]') ?? [...r.querySelectorAll('input, textarea')].find((i) => i.placeholder === t)
+  }
+`
+
+/** Toca no centro de um elemento, como um dedo (eventos de toque reais do Chromium). */
+async function tocarEm(seletorJs, descricao) {
+  let pos = null
+  await esperarAte(
+    async () => {
+      pos = await js(`(() => { ${AJUDANTES}
+        const e = ${seletorJs}
+        if (!e || e.disabled || e.getAttribute('aria-disabled') === 'true') return null
+        e.scrollIntoView({ block: 'center', inline: 'nearest' })
+        const r = e.getBoundingClientRect()
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+      })()`)
+      return !!pos
+    },
+    15_000,
+    `não encontrei «${descricao}» (ou estava desativado)`,
+  )
+  // toca só quando o elemento parou (scroll, folhas a subir, teclado a fechar): no emulador do CI
+  // a WebView desenha sem GPU e cada fotograma pode levar segundos
+  // cada medição espera por dois fotogramas (com um limite): duas medições no mesmo fotograma
+  // dariam sempre o mesmo sítio, mesmo com o elemento a meio de uma animação
+  const medir = () =>
+    js(`new Promise((ok) => {
+      const fim = () => { ${AJUDANTES} const e = ${seletorJs}; if (!e) return ok(null); const r = e.getBoundingClientRect(); ok({ x: r.left + r.width / 2, y: r.top + r.height / 2 }) }
+      const t = setTimeout(fim, 4000)
+      requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(t); fim() }))
+    })`)
+  let anterior = null
+  for (let i = 0; i < 25; i++) {
+    await esperar(200)
+    pos = (await medir()) ?? pos
+    if (anterior && Math.abs(anterior.x - pos.x) < 1 && Math.abs(anterior.y - pos.y) < 1) break
+    anterior = pos
+  }
+  await cdp.enviar('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: pos.x, y: pos.y }] })
+  await esperar(40)
+  await cdp.enviar('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await esperar(350)
+}
+const tocar = (texto) => tocarEm(`botao(${JSON.stringify(texto)})`, texto)
+
+/** Escreve num campo (pelo rótulo) com o teclado do sistema e confirma o que lá ficou. */
+async function escrever(rotulo, valor) {
+  const sel = `campo(${JSON.stringify(rotulo)})`
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    await tocarEm(sel, `campo ${rotulo}`)
+    await js(`(() => { ${AJUDANTES} const c = ${sel}; c.focus(); c.select?.() })()`)
+    if (await js(`(() => { ${AJUDANTES} return ${sel}.value })()`)) {
+      await cdp.enviar('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 })
+      await cdp.enviar('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 })
+    }
+    await cdp.enviar('Input.insertText', { text: valor })
+    await esperar(150 + tentativa * 250)
+    if ((await js(`(() => { ${AJUDANTES} return ${sel}.value })()`)) === valor) return
+  }
+  throw new Error(`o campo «${rotulo}» não ficou com o valor escrito`)
+}
+
+async function captura(nome) {
+  await esperar(450)
+  try {
+    const { data } = await cdp.enviar('Page.captureScreenshot', { format: 'png' })
+    writeFileSync(path.join(CAPTURAS, `${nome}.png`), data, 'base64')
+  } catch {}
+}
+
+// ───────────────────────────── passos ─────────────────────────────
+
+const resultados = []
+let falhas = 0
+let semResposta = 0
+/** Quando o emulador ou a app deixam de responder, os passos seguintes já não dizem nada. */
+let parar = ''
+async function passo(nome, f, { soAndroid = false, salvo = '' } = {}) {
+  if (soAndroid && SIMULADOR) {
+    console.log(`– ${nome} (só no Android)`)
+    return
+  }
+  if (salvo) {
+    console.log(`– ${nome} (não se aplica: ${salvo})`)
+    return
+  }
+  if (parar) {
+    resultados.push({ nome, ok: false })
+    console.log(`✘ ${nome} — não corrido: ${parar}`)
+    return
+  }
+  try {
+    await f()
+    resultados.push({ nome, ok: true })
+    semResposta = 0
+    console.log(`✔ ${nome}`)
+  } catch (e) {
+    const msg = String(e?.message ?? e).split('\n')[0]
+    resultados.push({ nome, ok: false, msg: msg.slice(0, 200) })
+    console.log(`✘ ${nome} — ${msg}`)
+    await captura(`falha-${++falhas}`)
+    if (falhas <= 2) await diagnostico(nome)
+    if (!SIMULADOR && !dispositivoVivo()) parar = 'o emulador deixou de responder'
+    else if (/sem resposta/.test(msg) && ++semResposta >= 3) parar = 'a app deixou de responder (ver logcat.txt)'
+  }
+}
+
+async function abrirApp({ limpar = false } = {}) {
+  if (SIMULADOR) {
+    await ligar()
+    const base = process.env.ENDERECO ?? 'http://127.0.0.1:5174'
+    await cdp.enviar('Page.navigate', { url: `${base}/?simular=android&fase=sem-cofre` })
+    await esperar(1500)
+    return
+  }
+  if (limpar) shell('pm', 'clear', PACOTE)
+  shell('am', 'start', '-W', '-n', ATIVIDADE, ...EXTRAS)
+  await ligar()
+}
+
+/** O detalhe de um registo está aberto (tem o botão de revelar a senha)? */
+const detalheAberto = () => js(`(() => { ${AJUDANTES} return !!botao('Revelar senha') })()`)
+
+async function desbloquear(senha = SENHA) {
+  await escrever('Senha mestra', senha)
+  // Enter no campo envia o formulário, como no teclado do telemóvel. (Tocar no botão com o teclado
+  // a fechar falhava; e um «voltar» para o fechar, no primeiro ecrã, manda a app para trás.)
+  await cdp.enviar('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' })
+  await cdp.enviar('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+}
+
+if (!SIMULADOR) iniciarLogcat()
+
+try {
+  await passo(
+    'o pacote não pede acesso à internet nem deixa o Android copiar os dados',
+    () => {
+      const t = shell('dumpsys', 'package', PACOTE)
+      const pedidas = t.split('requested permissions:')[1]?.split(/install permissions:|runtime permissions:|User 0:/)[0] ?? ''
+      assegurar(!pedidas.includes('android.permission.INTERNET'), 'o APK pede a permissão INTERNET')
+      const flags = t.match(/pkgFlags=\[([^\]]*)\]/)?.[1] ?? ''
+      assegurar(!flags.includes('ALLOW_BACKUP'), `cópias do Android permitidas (pkgFlags: ${flags.trim()})`)
+    },
+    { soAndroid: true },
+  )
+
+  await passo('primeiro uso mostra as boas-vindas (sem internet)', async () => {
+    await abrirApp({ limpar: true })
+    try {
+      await esperarTexto('Criar um cofre novo', 25_000)
+    } catch (e) {
+      // página em branco: recarregar com o DevTools já ligado mostra os erros desde o arranque
+      await diagnostico('primeiro ecrã não apareceu — a recarregar a página')
+      if (SIMULADOR) throw e
+      cdp.eventos.length = 0
+      await cdp.enviar('Page.reload', { ignoreCache: true }).catch(() => {})
+      await esperar(1500)
+      await esperarTexto('Criar um cofre novo', 25_000)
+    }
+    const t = await textoPagina()
+    assegurar(t.includes('telemóvel'), 'os textos ainda falam do computador')
+    await captura('01-boas-vindas')
+  })
+
+  await passo('criar o cofre com chave de recuperação', async () => {
+    await tocar('Criar um cofre novo')
+    await escrever('Nome', 'Inês')
+    await tocar('Continuar')
+    await escrever('Senha mestra', SENHA)
+    await esperar(500)
+    if ((await textoPagina()).includes('quero usá-la')) await tocar('Percebo que esta senha é fraca')
+    await tocar('Continuar')
+    await escrever('Repetir a senha mestra', SENHA)
+    await tocar('Continuar')
+    await esperarTexto('Criar uma chave de recuperação')
+    await tocar('Continuar')
+    await tocar('Criar o cofre')
+    await esperarTexto('CHAVE DE RECUPERAÇÃO', 90_000) // Argon2id num emulador sem aceleração demora
+    await captura('02-chave-recuperacao')
+    await tocar('Guardei a chave de recuperação')
+    await tocar('Entrar no cofre')
+    await esperarTexto('Bem-vindo', 20_000)
+    await captura('03-visao-geral')
+  })
+
+  await passo(
+    'o ecrã está protegido contra capturas (FLAG_SECURE)',
+    () => {
+      const t = shell('dumpsys', 'window', 'windows')
+      const janela = new RegExp(`Window\\{[^}]*${PACOTE.replaceAll('.', '\\.')}/[^}]*MainActivity\\}`)
+      const bloco = t.split(/\n(?=\s*Window #)/).find((b) => janela.test(b)) ?? ''
+      assegurar(bloco, 'janela da app não encontrada no dumpsys')
+      assegurar(/fl=[^\n]*SECURE/.test(bloco), 'a janela não tem FLAG_SECURE')
+    },
+    { soAndroid: true, salvo: SEM_FLAG_SECURE && 'variante sem FLAG_SECURE' },
+  )
+
+  await passo('guardar uma senha com o botão «+»', async () => {
+    await tocar('Senhas')
+    await tocar('Novo registo')
+    await escrever('Título', TITULO)
+    await escrever('Utilizador', 'ines.teste')
+    await escrever('Senha', SEGREDO)
+    await captura('04-editor')
+    await tocar('Guardar')
+    await esperarTexto(TITULO, 20_000)
+    await semTexto('Nova senha', 10_000)
+  })
+
+  await passo('o detalhe não tem a senha no DOM até ser revelada', async () => {
+    if (!(await js(`!!document.querySelector('h2') && [...document.querySelectorAll('h2')].some((h) => h.innerText.trim() === ${JSON.stringify(TITULO)})`))) {
+      await tocar(TITULO)
+    }
+    await ocultarTeclado()
+    await esperarAte(detalheAberto, 20_000, 'o detalhe não abriu')
+    assegurar(!(await html()).includes(SEGREDO), 'a senha apareceu no DOM sem ser revelada')
+    await tocar('Revelar senha')
+    await esperarAte(async () => (await html()).includes(SEGREDO), 20_000, 'revelar não mostrou a senha')
+    await captura('05-detalhe-revelado')
+    await tocar('Ocultar senha')
+    await esperarAte(async () => !(await html()).includes(SEGREDO), 20_000, 'ocultar não tirou a senha do DOM')
+  })
+
+  await passo('copiar a senha avisa quando a área de transferência é limpa', async () => {
+    await tocar('Copiar senha')
+    await esperarTexto('A área de transferência é limpa em')
+  })
+
+  await passo(
+    'botão voltar: fecha o detalhe, volta ao início e manda a app para trás',
+    async () => {
+      await fecharTecladoComVoltar()
+      tecla(VOLTAR)
+      // (o nome de utilizador também aparece na lista: o detalhe reconhece-se pelo «Revelar senha»)
+      await esperarAte(async () => !(await detalheAberto()), 20_000, 'o detalhe não fechou com o voltar')
+      tecla(VOLTAR)
+      await esperarTexto('Bem-vindo', 20_000)
+      tecla(VOLTAR)
+      await esperarAte(() => !emPrimeiroPlano(), 20_000, 'a app não saiu da frente no ecrã inicial')
+      await esperarAte(atividadeParada, 90_000, 'o Android não chegou a parar a app (onStop)')
+    },
+    { soAndroid: true },
+  )
+
+  await passo(
+    'ao voltar à app o cofre está bloqueado (Bloquear ao sair da app)',
+    async () => {
+      shell('am', 'start', '-n', ATIVIDADE, ...EXTRAS)
+      await ligar()
+      await esperarTexto('Bloqueado porque saíste da app', 25_000)
+      assegurar(!(await html()).includes(TITULO), 'o nome de um registo ficou no ecrã bloqueado')
+      await captura('06-bloqueado')
+    },
+    { soAndroid: true },
+  )
+
+  await passo('a senha errada não abre o cofre', async () => {
+    if (SIMULADOR) {
+      await tocar('Bloquear o cofre')
+      await esperarTexto('O teu cofre está bloqueado')
+    }
+    await desbloquear('abc')
+    await esperarTexto('A senha não abre este cofre')
+  })
+
+  await passo('a senha certa abre o cofre', async () => {
+    await desbloquear()
+    await esperarTexto('Bem-vindo', 45_000)
+  })
+
+  await passo(
+    'o cofre fica gravado: fechar a app, abrir e encontrar a senha',
+    async () => {
+      shell('am', 'force-stop', PACOTE)
+      await esperar(800)
+      shell('am', 'start', '-W', '-n', ATIVIDADE, ...EXTRAS)
+      await ligar()
+      await esperarTexto('O teu cofre está bloqueado', 30_000)
+      await desbloquear()
+      await esperarTexto('Bem-vindo', 30_000)
+      await tocar('Senhas')
+      await esperarTexto(TITULO)
+    },
+    { soAndroid: true },
+  )
+
+  await passo('definições do telemóvel: sem opções do Windows', async () => {
+    await tocar('Mais')
+    await tocar('Definições')
+    await esperarTexto('Bloquear ao sair da app')
+    const t = await textoPagina()
+    for (const so of ['Iniciar com o Windows', 'sessão do Windows', 'Ao fechar a janela', 'Atalhos de teclado']) assegurar(!t.includes(so), `aparece «${so}» no telemóvel`)
+    await captura('07-definicoes')
+  })
+
+  await passo('bloquear à mão tira tudo do ecrã', async () => {
+    await tocar('Bloquear o cofre')
+    await esperarTexto('O teu cofre está bloqueado')
+    assegurar(!(await html()).includes(TITULO), 'o nome de um registo ficou no DOM depois de bloquear')
+  })
+} finally {
+  cdp?.fechar()
+  navegador?.kill()
+  if (!SIMULADOR) {
+    try {
+      adb('forward', '--remove', `tcp:${PORTA}`)
+    } catch {}
+    if (resultados.some((r) => !r.ok)) {
+      // para perceber uma falha sem acesso ao emulador: falhas da app e o estado dos processos
+      for (const [ficheiro, args] of [
+        ['logcat-falhas.txt', ['logcat', '-d', '-b', 'crash']],
+        ['processos.txt', ['shell', 'ps', '-A']],
+        ['atividades.txt', ['shell', 'dumpsys', 'activity', 'activities']],
+      ]) {
+        try {
+          writeFileSync(path.join(CAPTURAS, ficheiro), adb(...args))
+        } catch {}
+      }
+    }
+    logcat?.kill()
+  }
+}
+
+const ok = resultados.filter((r) => r.ok).length
+const falhados = resultados.filter((r) => !r.ok)
+if (falhados.length) {
+  console.log('\nPassos que falharam:')
+  for (const r of falhados) console.log(`  ✘ ${r.nome} — ${r.msg ?? ''}`)
+}
+console.log(`\n${ok}/${resultados.length} passos certos${SIMULADOR ? ' (simulador)' : ''}. Capturas em ${CAPTURAS}`)
+process.exit(ok === resultados.length ? 0 : 1)

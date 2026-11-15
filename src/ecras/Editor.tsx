@@ -154,7 +154,7 @@ export function Editor() {
             Cancelar
           </Botao>
           <Botao onClick={() => void guardar()} carregando={aGuardar} disabled={!item}>
-            Guardar <span className="text-[11px] font-normal opacity-70">Ctrl+S</span>
+            Guardar <span className="tecla-atalho text-[11px] font-normal opacity-70">Ctrl+S</span>
           </Botao>
         </>
       }
