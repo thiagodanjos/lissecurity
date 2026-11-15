@@ -92,9 +92,9 @@ jobs:
           if-no-files-found: error
 
   android:
-    name: App Android (APK e teste no emulador)
+    name: App Android (APK)
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 75
     outputs:
       assinado: ${{ steps.publicar.outputs.assinado }}
     env:
@@ -130,46 +130,15 @@ jobs:
           ORG_GRADLE_PROJECT_depurarWebView: "true"
         run: |
           npx tauri android build --target x86_64 --apk
-          mv src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk "$RUNNER_TEMP/teste.apk"
-      # os daemons do Gradle e do Kotlin ficam com ~2 GB cada depois da compilação: o emulador
-      # precisa dessa memória (sem ela, o sistema pode matá-lo a meio do teste)
-      - name: Libertar memória para o emulador
-        run: |
-          (cd src-tauri/gen/android && ./gradlew --stop) || true
-          pkill -f KotlinCompileDaemon || true
-          free -m
-          df -h /
-      - name: Ativar a aceleração do emulador (KVM)
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - name: Teste ponta-a-ponta no emulador (Android 14)
-        uses: reactivecircus/android-emulator-runner@v2
-        env:
-          CAPTURAS: ${{ runner.temp }}/capturas-android
-        with:
-          api-level: 34
-          arch: x86_64
-          target: google_apis
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: |
-            adb install -r "$RUNNER_TEMP/teste.apk"
-            node e2e/android.mjs
-      - name: Diagnóstico do anfitrião (se o teste no emulador falhar)
-        if: failure()
-        run: |
-          free -m
-          df -h /
-          sudo dmesg -T | grep -iE "killed process|out of memory|oom" | tail -20 || true
-      - name: Capturas do teste no Android
-        if: always()
+          mkdir -p apk-teste
+          mv src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk apk-teste/LisSecurity-teste-x86_64.apk
+      - name: Guardar o APK de teste para o emulador
         uses: actions/upload-artifact@v4
         with:
-          name: capturas-android
-          path: ${{ runner.temp }}/capturas-android
-          if-no-files-found: ignore
+          name: apk-teste
+          path: apk-teste/*.apk
+          retention-days: 7
+          if-no-files-found: error
       # A chave de assinatura vem dos segredos do repositório (nunca do código). Sem ela, o APK
       # fica assinado com uma chave de depuração descartável: serve para experimentar, mas não
       # vai para a Release (não atualizaria uma instalação feita com a chave verdadeira).
@@ -207,12 +176,73 @@ jobs:
           path: apk/*.apk
           if-no-files-found: error
 
+  # O APK de teste numa máquina limpa (sem os daemons da compilação), em duas configurações da
+  # emulação gráfica: a predefinida (Vulkan) e só com OpenGL ES, que costuma ser mais estável.
+  # Antes de instalar a app, o emulador fica 2 min parado: se morrer aí, o problema é dele.
+  android-emulador:
+    name: Teste no emulador (${{ matrix.nome }})
+    needs: android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nome: Android 14
+            opcoes: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -camera-front none
+          - nome: Android 14, sem Vulkan
+            opcoes: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -camera-front none -feature -Vulkan
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: e2e
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-teste
+          path: apk-teste
+      - name: Ativar a aceleração do emulador (KVM)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Teste ponta-a-ponta no emulador
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          CAPTURAS: ${{ runner.temp }}/capturas-android
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: ${{ matrix.opcoes }}
+          script: |
+            sleep 120; echo "emulador sem a app ao fim de 2 min: $(adb get-state 2>&1)"
+            adb install -r apk-teste/LisSecurity-teste-x86_64.apk
+            node e2e/android.mjs
+      - name: Diagnóstico do anfitrião (se o teste no emulador falhar)
+        if: failure()
+        run: |
+          free -m
+          df -h /
+          sudo dmesg -T | grep -iE "killed process|out of memory|oom" | tail -20 || true
+          ls -la /tmp/android-runner/ 2>/dev/null || true
+      - name: Capturas do teste no Android
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capturas-android-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/capturas-android
+          if-no-files-found: ignore
+
   # Publica a Release da versão em src-tauri/tauri.conf.json, depois de tudo passar, quando:
   #  - se envia uma etiqueta vX.Y.Z, ou
   #  - um commit no main traz "[publicar-release]" na mensagem (a etiqueta é criada aqui).
   release:
     name: Publicar Release
-    needs: [testes, windows, android]
+    needs: [testes, windows, android, android-emulador]
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publicar-release]'))
     runs-on: ubuntu-24.04
     permissions:

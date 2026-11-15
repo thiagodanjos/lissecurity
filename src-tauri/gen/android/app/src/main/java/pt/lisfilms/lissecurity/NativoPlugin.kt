@@ -132,7 +132,8 @@ class NativoPlugin(private val atividade: Activity) : Plugin(atividade) {
       m.put("esquerda", barras.left / d)
       m.put("teclado", teclado.bottom / d)
       margens = m
-      val js = "(function(m){var r=document.documentElement.style;" +
+      // antes de a página existir não há documento: a interface pede as margens ao arrancar
+      val js = "(function(m){var d=document.documentElement;if(!d)return;var r=d.style;" +
         "r.setProperty('--sistema-topo',m.topo+'px');r.setProperty('--sistema-direita',m.direita+'px');" +
         "r.setProperty('--sistema-baixo',m.baixo+'px');r.setProperty('--sistema-esquerda',m.esquerda+'px');" +
         "r.setProperty('--sistema-teclado',m.teclado+'px');" +
