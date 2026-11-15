@@ -9,25 +9,97 @@
 //! * Depois de cada alteração, espera 15 s sem alterações novas e grava
 //!   `LisSecurity/LisSecurity-auto-AAAA-MM-DD_HHMMSS.lissec` (atómico, relido e decifrado).
 //! * Mantém as N mais recentes; as cópias manuais nunca são apagadas.
+//!
+//! **Android**: não há Google Drive «montado» como pasta. A pessoa escolhe uma pasta no seletor
+//! do sistema (no telemóvel, num cartão, ou de outra app que a ofereça) e a app guarda a
+//! permissão de escrita; as cópias vão para lá diretamente. Para o Google Drive há a cópia
+//! manual («Guardar como…» e «Partilhar»), porque a app do Drive não oferece pastas a outras
+//! apps. A pasta fica no cofre: se for de outro aparelho (um caminho do Windows num telemóvel
+//! ou o contrário), as cópias automáticas param até se escolher uma pasta neste.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(desktop)]
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use lissecurity_core::agora_ms;
 use lissecurity_core::analise::data_hora;
+#[cfg(desktop)]
 use lissecurity_core::armazenamento::escrever_atomico;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::estado::{trancar, ErroUi, Estado, R};
 
+#[cfg(desktop)]
 pub const SUBPASTA: &str = "LisSecurity";
 pub const PREFIXO_AUTO: &str = "LisSecurity-auto-";
 const ESPERA: Duration = Duration::from_secs(15);
 
-pub fn destino(pasta: &str) -> PathBuf {
-    Path::new(pasta).join(SUBPASTA)
+/// A pasta guardada no cofre serve neste aparelho?
+pub fn pasta_deste_aparelho(pasta: &str) -> bool {
+    let p = pasta.trim();
+    if cfg!(target_os = "android") {
+        p.starts_with("content://")
+    } else {
+        !p.is_empty() && !p.starts_with("content://") && Path::new(p).is_absolute()
+    }
+}
+
+/// Onde as cópias ficam, para mostrar (caminho no computador, nome da pasta no Android).
+pub fn destino(app: &AppHandle, pasta: &str) -> String {
+    #[cfg(target_os = "android")]
+    return crate::nativo::info_pasta(app, pasta).map(|(nome, _)| nome).unwrap_or_else(|_| "Pasta escolhida".into());
+    #[cfg(desktop)]
+    {
+        let _ = app;
+        Path::new(pasta).join(SUBPASTA).display().to_string()
+    }
+}
+
+/// Escolher a pasta das cópias automáticas.
+pub fn escolher_pasta(app: &AppHandle, titulo: &str) -> R<Option<String>> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = titulo;
+        Ok(crate::nativo::escolher_pasta(app)?.and_then(|d| d.uri))
+    }
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_dialog::DialogExt;
+        let p = app.dialog().file().set_title(titulo).blocking_pick_folder();
+        Ok(p.and_then(|p| p.into_path().ok()).map(|p| p.display().to_string()))
+    }
+}
+
+/// Confirma que se pode escrever na pasta antes de ligar as cópias automáticas.
+pub fn validar_pasta(app: &AppHandle, pasta: &str) -> R<()> {
+    if !pasta_deste_aparelho(pasta) {
+        return Err(ErroUi::novo("invalido", "Escolhe uma pasta neste aparelho."));
+    }
+    #[cfg(target_os = "android")]
+    {
+        let (_, acessivel) = crate::nativo::info_pasta(app, pasta)?;
+        if !acessivel {
+            return Err(ErroUi::novo("invalido", "A app deixou de ter acesso a essa pasta. Escolhe-a outra vez."));
+        }
+        Ok(())
+    }
+    #[cfg(desktop)]
+    {
+        let _ = app;
+        if !Path::new(pasta).is_dir() {
+            return Err(ErroUi::novo("invalido", "Escolhe uma pasta que exista (por exemplo, a do Google Drive)."));
+        }
+        std::fs::create_dir_all(Path::new(pasta).join(SUBPASTA)).map_err(|_| ErroUi::novo("io", "Não foi possível escrever nessa pasta."))
+    }
+}
+
+fn nome_automatico(agora: i64) -> String {
+    let (a, m, d, h, min) = data_hora(agora);
+    let seg = (agora / 1000).rem_euclid(60);
+    format!("{PREFIXO_AUTO}{a:04}-{m:02}-{d:02}_{h:02}{min:02}{seg:02}")
 }
 
 /// Pede uma cópia automática; várias alterações seguidas dão uma só cópia.
@@ -63,25 +135,44 @@ pub fn fazer(app: &AppHandle) -> R<CopiaFeita> {
         if cfg.pasta.trim().is_empty() {
             return Err(ErroUi::novo("invalido", "Escolhe primeiro a pasta das cópias automáticas."));
         }
-        let pasta = destino(&cfg.pasta);
-        std::fs::create_dir_all(&pasta).map_err(|_| {
-            ErroUi::novo("io", "Não foi possível criar a pasta das cópias. Confirma se o Google Drive (ou o disco) está disponível.")
-        })?;
-        let agora = agora_ms();
-        let (a, m, d, h, min) = data_hora(agora);
-        let seg = (agora / 1000).rem_euclid(60);
-        let base = format!("{PREFIXO_AUTO}{a:04}-{m:02}-{d:02}_{h:02}{min:02}{seg:02}");
-        let mut caminho = pasta.join(format!("{base}.lissec"));
-        let mut n = 2;
-        while caminho.exists() {
-            caminho = pasta.join(format!("{base}-{n}.lissec"));
-            n += 1;
+        if !pasta_deste_aparelho(&cfg.pasta) {
+            return Err(ErroUi::novo("invalido", "A pasta das cópias automáticas é de outro aparelho. Escolhe uma pasta aqui."));
         }
+        let agora = agora_ms();
+        let base = nome_automatico(agora);
         let bytes = s.cofre.serializar(agora)?;
-        escrever_atomico(&caminho, &bytes, |b| s.cofre.verificar_gravado(b))?;
-        drop(g);
-        podar(&pasta, cfg.manter.clamp(3, 100) as usize);
-        Ok(CopiaFeita { caminho: caminho.display().to_string(), em: agora, bytes: bytes.len() })
+        #[cfg(desktop)]
+        let caminho = {
+            let pasta = Path::new(&cfg.pasta).join(SUBPASTA);
+            std::fs::create_dir_all(&pasta).map_err(|_| {
+                ErroUi::novo("io", "Não foi possível criar a pasta das cópias. Confirma se o Google Drive (ou o disco) está disponível.")
+            })?;
+            let mut caminho = pasta.join(format!("{base}.lissec"));
+            let mut n = 2;
+            while caminho.exists() {
+                caminho = pasta.join(format!("{base}-{n}.lissec"));
+                n += 1;
+            }
+            escrever_atomico(&caminho, &bytes, |b| s.cofre.verificar_gravado(b))?;
+            drop(g);
+            podar(&pasta, cfg.manter.clamp(3, 100) as usize);
+            caminho.display().to_string()
+        };
+        #[cfg(target_os = "android")]
+        let caminho = {
+            use crate::nativo;
+            let doc = nativo::gravar_na_pasta(app, &cfg.pasta, &format!("{base}.lissec"), &bytes)?;
+            let uri = doc.uri.clone().unwrap_or_default();
+            let verificado = nativo::ler(app, &uri, (bytes.len() as u64) * 2).and_then(|b| s.cofre.verificar_gravado(&b).map_err(ErroUi::from));
+            drop(g);
+            if let Err(e) = verificado {
+                let _ = nativo::apagar(app, &uri);
+                return Err(e);
+            }
+            podar_android(app, &cfg.pasta, cfg.manter.clamp(3, 100) as usize);
+            doc.nome
+        };
+        Ok(CopiaFeita { caminho, em: agora, bytes: bytes.len() })
     })();
     match &resultado {
         Ok(c) => {
@@ -98,8 +189,22 @@ pub fn fazer(app: &AppHandle) -> R<CopiaFeita> {
     resultado
 }
 
+/// Android: o mesmo que `podar`, na pasta escolhida no seletor.
+#[cfg(target_os = "android")]
+fn podar_android(app: &AppHandle, pasta: &str, manter: usize) {
+    let Ok(lista) = crate::nativo::listar_pasta(app, pasta) else { return };
+    let mut auto: Vec<_> = lista.into_iter().filter(|d| d.nome.starts_with(PREFIXO_AUTO) && d.nome.ends_with(".lissec")).collect();
+    auto.sort_by(|a, b| b.nome.cmp(&a.nome));
+    for velho in auto.into_iter().skip(manter) {
+        if let Some(uri) = velho.uri {
+            let _ = crate::nativo::apagar(app, &uri);
+        }
+    }
+}
+
 /// Apaga as cópias automáticas mais antigas, deixando `manter`. Só toca em ficheiros
 /// `LisSecurity-auto-*.lissec` desta pasta.
+#[cfg(desktop)]
 fn podar(pasta: &Path, manter: usize) {
     let Ok(entradas) = std::fs::read_dir(pasta) else { return };
     let mut auto: Vec<PathBuf> = entradas
@@ -127,8 +232,37 @@ pub struct CopiaEncontrada {
     pub automatica: bool,
 }
 
-/// Ficheiros `.lissec` numa pasta e na subpasta `LisSecurity` (sem os abrir).
-pub fn listar(pasta: &Path) -> Vec<CopiaEncontrada> {
+/// Ficheiros `.lissec` da pasta das cópias (sem os abrir). No Android, cada um fica registado
+/// como escolhido, para poder ser testado ou restaurado.
+pub fn listar(app: &AppHandle, pasta: &str) -> Vec<CopiaEncontrada> {
+    if !pasta_deste_aparelho(pasta) {
+        return Vec::new();
+    }
+    #[cfg(target_os = "android")]
+    {
+        let Ok(lista) = crate::nativo::listar_pasta(app, pasta) else { return Vec::new() };
+        let mut v: Vec<CopiaEncontrada> = lista
+            .into_iter()
+            .filter(|d| d.nome.ends_with(".lissec"))
+            .filter_map(|d| {
+                let uri = d.uri?;
+                trancar(&app.state::<Estado>().escolhidos).insert(uri.clone());
+                Some(CopiaEncontrada { automatica: d.nome.starts_with(PREFIXO_AUTO), caminho: uri, nome: d.nome, bytes: d.tamanho, modificado: d.modificado })
+            })
+            .collect();
+        v.sort_by_key(|c| std::cmp::Reverse(c.modificado));
+        v.truncate(300);
+        v
+    }
+    #[cfg(desktop)]
+    {
+        let _ = app;
+        listar_pasta(Path::new(pasta))
+    }
+}
+
+#[cfg(desktop)]
+fn listar_pasta(pasta: &Path) -> Vec<CopiaEncontrada> {
     let mut v = Vec::new();
     for p in [pasta.to_path_buf(), pasta.join(SUBPASTA)] {
         let Ok(entradas) = std::fs::read_dir(&p) else { continue };
@@ -167,6 +301,13 @@ pub struct PastaNuvem {
 }
 
 /// Procura as pastas do Google Drive para computador, OneDrive, Dropbox e iCloud.
+/// (No Android não há nenhuma: escolhe-se a pasta no seletor do sistema.)
+#[cfg(mobile)]
+pub fn pastas_nuvem() -> Vec<PastaNuvem> {
+    Vec::new()
+}
+
+#[cfg(desktop)]
 pub fn pastas_nuvem() -> Vec<PastaNuvem> {
     let mut v: Vec<PastaNuvem> = Vec::new();
     let mut juntar = |servico: &str, p: PathBuf| {

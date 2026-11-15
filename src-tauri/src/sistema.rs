@@ -6,6 +6,9 @@
 //!   salto no relógio de parede (o computador esteve parado) também bloqueia.
 //! * **Sessão do Windows bloqueada** (Win+L), troca de utilizador ou fim de sessão —
 //!   `WM_WTSSESSION_CHANGE` depois de `WTSRegisterSessionNotification`.
+//! * **Android**: sair da app (início, ecrã desligado, outra app por cima) conta como
+//!   minimizar — a Activity avisa em `onStop` (ver `nativo.rs`). Com a app em segundo plano o
+//!   Android pode congelar o processo; ao voltar, o salto no relógio também bloqueia.
 
 use std::time::{Duration, SystemTime};
 
@@ -34,6 +37,15 @@ fn vigiar(app: AppHandle) {
         } else if estado.inativo_ha() >= Duration::from_secs(def.bloqueio_minutos as u64 * 60) {
             bloquear(&app, "inatividade");
         }
+    }
+}
+
+/// Android: a app deixou de estar visível. Equivale a minimizar no computador: bloqueia se a
+/// política «bloquear ao minimizar» (no telemóvel, «ao sair da app») estiver ligada.
+#[cfg(target_os = "android")]
+pub fn saiu_da_app(app: &AppHandle) {
+    if app.state::<Estado>().politicas().is_some_and(|d| d.bloquear_ao_minimizar) {
+        bloquear(app, "sair-da-app");
     }
 }
 

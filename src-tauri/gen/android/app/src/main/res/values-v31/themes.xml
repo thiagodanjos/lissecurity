@@ -1,0 +1,14 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.lissecurity" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowBackground">@color/fundo</item>
+        <item name="android:colorBackground">@color/fundo</item>
+        <item name="colorPrimary">@color/verde</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <!-- ecrã de abertura do Android 12+: o símbolo do LisSecurity sobre o fundo da app -->
+        <item name="android:windowSplashScreenBackground">@color/fundo</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_lis_simbolo</item>
+    </style>
+</resources>

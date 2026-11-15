@@ -66,7 +66,8 @@ pub struct Estado {
     pub copia_auto: EstadoCopiaAuto,
     /// Ficheiros escolhidos pela pessoa nas janelas de abrir ficheiro: só esses podem ser
     /// lidos para importar (ou apagados depois), nunca um caminho qualquer vindo da interface.
-    pub escolhidos: Mutex<std::collections::HashSet<PathBuf>>,
+    /// No computador são caminhos; no Android, URIs de documentos (`content://…`).
+    pub escolhidos: Mutex<std::collections::HashSet<String>>,
     pub app: std::sync::OnceLock<AppHandle>,
 }
 

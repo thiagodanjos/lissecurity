@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- a identidade do LisFilms / LisSecurity (src/index.css) -->
+    <color name="fundo">#FF0B0D10</color>
+    <color name="lateral">#FF08090C</color>
+    <color name="verde">#FF1ED760</color>
+    <color name="texto">#FFF4F6F8</color>
+</resources>

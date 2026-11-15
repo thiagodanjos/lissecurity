@@ -154,6 +154,23 @@ impl CofreAberto {
         Self::abrir_com_chave(f, chave)
     }
 
+    /// Abre com a própria chave do cofre, guardada por um aparelho (desbloqueio biométrico no
+    /// Android: a chave vive cifrada pelo Android Keystore e só sai de lá depois de a pessoa
+    /// se autenticar). Não substitui as ranhuras: quem tem a chave do cofre tem o cofre, tal
+    /// como quem sabe a senha mestra. Se a chave do cofre tiver mudado (senha nova, outra
+    /// cópia restaurada), a decifração falha com [`Erro::IntegridadeFalhou`].
+    pub fn abrir_com_chave_do_cofre(bytes: &[u8], chave: &[u8; 32]) -> Resultado<Aberto> {
+        let f = FicheiroCofre::ler(bytes)?;
+        Self::abrir_com_chave(f, Chave::de_bytes(*chave))
+    }
+
+    /// Cópia da chave do cofre, para o aparelho a guardar protegida (desbloqueio biométrico).
+    /// Apaga-se da memória ao largar. Muda sempre que a senha mestra, a recuperação ou a
+    /// proteção mudam: quem a guarda tem de a renovar depois dessas operações.
+    pub fn chave_do_cofre(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(*self.chave.bytes())
+    }
+
     fn abrir_com_chave(f: FicheiroCofre, chave: Chave) -> Resultado<Aberto> {
         let texto = cripto::decifrar(&chave, &f.nonce_dados, &f.aad_dados(), &f.dados_cifrados).ok_or(Erro::IntegridadeFalhou)?;
         let (dados, migrado) = desempacotar(&texto)?;
@@ -373,6 +390,33 @@ mod testes {
         c.dados.esquema = ESQUEMA_ATUAL + 1;
         let b = c.serializar(3).unwrap();
         assert!(matches!(CofreAberto::abrir_com_senha(&b, SENHA), Err(Erro::Invalido(_))));
+    }
+
+    #[test]
+    fn abre_com_a_chave_do_cofre_e_deixa_de_abrir_quando_ela_roda() {
+        let mut c = novo();
+        let chave = c.chave_do_cofre();
+        let b = c.serializar(2).unwrap();
+        let mut a = CofreAberto::abrir_com_chave_do_cofre(&b, &chave).unwrap().cofre;
+        assert_eq!(a.id_cofre(), c.id_cofre());
+        // aberto assim, grava e volta a abrir com a senha (as ranhuras ficam intactas)
+        let b2 = a.serializar(3).unwrap();
+        assert!(CofreAberto::abrir_com_senha(&b2, SENHA).is_ok());
+        // uma chave qualquer não abre
+        assert!(matches!(CofreAberto::abrir_com_chave_do_cofre(&b, &[7u8; 32]), Err(Erro::IntegridadeFalhou)));
+        // depois de trocar a senha, a chave antiga deixa de abrir o cofre novo
+        let (mut n, _) = c.com_nova_senha("outra frase senha muito longa", ParamsKdf::para_testes()).unwrap();
+        let bn = n.serializar(4).unwrap();
+        assert!(matches!(CofreAberto::abrir_com_chave_do_cofre(&bn, &chave), Err(Erro::IntegridadeFalhou)));
+        assert!(CofreAberto::abrir_com_chave_do_cofre(&bn, &n.chave_do_cofre()).is_ok());
+    }
+
+    #[test]
+    fn id_do_ficheiro_sem_abrir() {
+        let mut c = novo();
+        let b = c.serializar(2).unwrap();
+        assert_eq!(crate::formato::id_do_cofre(&b).unwrap(), c.id_cofre());
+        assert!(crate::formato::id_do_cofre(b"LISSECURnao e um cofre").is_err());
     }
 
     #[test]
